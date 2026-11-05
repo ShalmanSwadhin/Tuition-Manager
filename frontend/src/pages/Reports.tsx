@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { Printer } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Printer, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
+import { todayDhakaStr, monthLabel, shiftMonth } from "../utils/date";
 
 interface ReportRow {
   studentId: string;
   fullName: string;
+  teacherName?: string;
   monthlyClassTarget: number;
   completed: number;
-  cancelled: number;
   remaining: number;
   completionPercent: number;
   diaryEntries: number;
@@ -16,88 +19,90 @@ interface ReportRow {
 }
 
 export default function Reports() {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [rows, setRows] = useState<ReportRow[]>([]);
+  const { user } = useAuth();
+  const today = todayDhakaStr();
+  const [ym, setYm] = useState({ year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) });
+  const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [overall, setOverall] = useState<{ totalTarget: number; totalCompleted: number } | null>(null);
 
   useEffect(() => {
-    api.get("/reports/monthly", { params: { year, month } }).then((res) => {
+    setRows(null);
+    api.get("/reports/monthly", { params: ym }).then((res) => {
       setRows(res.data.students);
       setOverall(res.data.overall);
     });
-  }, [year, month]);
+  }, [ym]);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <h1 className="text-lg font-semibold text-slate-900">Monthly reports</h1>
-        <div className="flex items-center gap-2">
-          <select
-            value={month}
-            onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>
-                {new Date(2000, m - 1, 1).toLocaleString("en-US", { month: "long" })}
-              </option>
-            ))}
-          </select>
-          <input
-            type="number"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-          <button
-            onClick={() => window.print()}
-            className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-          >
-            <Printer size={16} /> Print
-          </button>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="page-title">Reports</h1>
+        <button onClick={() => window.print()} className="btn-secondary px-3 py-2 print:hidden">
+          <Printer size={16} /> Print
+        </button>
       </div>
 
+      <div className="card flex items-center justify-between p-2 print:hidden">
+        <button onClick={() => setYm(shiftMonth(ym.year, ym.month, -1))} className="rounded-full p-2 hover:bg-slate-100" aria-label="Previous month">
+          <ChevronLeft size={20} />
+        </button>
+        <p className="font-semibold text-slate-900">{monthLabel(ym.year, ym.month)}</p>
+        <button onClick={() => setYm(shiftMonth(ym.year, ym.month, 1))} className="rounded-full p-2 hover:bg-slate-100" aria-label="Next month">
+          <ChevronRight size={20} />
+        </button>
+      </div>
+      <p className="hidden text-lg font-semibold print:block">{monthLabel(ym.year, ym.month)}</p>
+
       {overall && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-          Overall: {overall.totalCompleted}/{overall.totalTarget} classes completed across all students.
+        <div className="card">
+          <p className="text-sm text-slate-500">All students</p>
+          <p className="text-2xl font-bold text-slate-900">
+            {overall.totalCompleted}
+            <span className="text-base font-medium text-slate-400"> / {overall.totalTarget} classes</span>
+          </p>
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Student</th>
-              <th className="px-4 py-2">Target</th>
-              <th className="px-4 py-2">Completed</th>
-              <th className="px-4 py-2">Cancelled</th>
-              <th className="px-4 py-2">Remaining</th>
-              <th className="px-4 py-2">Progress</th>
-              <th className="px-4 py-2">Diary entries</th>
-              <th className="px-4 py-2">Homework done</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.studentId} className="border-t border-slate-100">
-                <td className="px-4 py-2 font-medium text-slate-900">{r.fullName}</td>
-                <td className="px-4 py-2">{r.monthlyClassTarget}</td>
-                <td className="px-4 py-2">{r.completed}</td>
-                <td className="px-4 py-2">{r.cancelled}</td>
-                <td className="px-4 py-2">{r.remaining}</td>
-                <td className="px-4 py-2">{r.completionPercent}%</td>
-                <td className="px-4 py-2">{r.diaryEntries}</td>
-                <td className="px-4 py-2">
-                  {r.homeworkCompleted}/{r.homeworkTotal}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {rows === null ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="card text-center text-sm text-slate-500">No students for this month.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.studentId} className="card break-inside-avoid">
+              <div className="flex items-baseline justify-between gap-2">
+                <Link to={`/students/${r.studentId}`} className="truncate font-semibold text-slate-900">
+                  {r.fullName}
+                </Link>
+                <span className="shrink-0 text-sm font-semibold text-slate-700">{r.completionPercent}%</span>
+              </div>
+              {user?.role === "admin" && r.teacherName && <p className="text-xs text-slate-500">Teacher: {r.teacherName}</p>}
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full bg-emerald-500" style={{ width: `${Math.min(r.completionPercent, 100)}%` }} />
+              </div>
+              <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div>
+                  <dt className="text-slate-500">Present</dt>
+                  <dd className="text-base font-semibold text-slate-900">
+                    {r.completed}/{r.monthlyClassTarget}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Diary</dt>
+                  <dd className="text-base font-semibold text-slate-900">{r.diaryEntries}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Homework</dt>
+                  <dd className="text-base font-semibold text-slate-900">
+                    {r.homeworkCompleted}/{r.homeworkTotal}
+                  </dd>
+                </div>
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

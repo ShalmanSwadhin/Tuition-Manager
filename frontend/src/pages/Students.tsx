@@ -1,194 +1,128 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Search, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Plus, Search, ChevronRight } from "lucide-react";
 import api from "../api/client";
-import type { Student } from "../types";
-
-const emptyForm = {
-  fullName: "",
-  classGrade: "",
-  subjects: "",
-  guardianName: "",
-  guardianPhone: "",
-  monthlyClassTarget: 12,
-  joiningDate: new Date().toISOString().slice(0, 10),
-  notes: "",
-};
+import { useAuth } from "../context/AuthContext";
+import StudentFormModal from "../components/StudentFormModal";
+import TeacherKeyCard from "../components/TeacherKeyCard";
+import type { Student, TeacherSummary } from "../types";
 
 export default function Students() {
-  const [students, setStudents] = useState<Student[]>([]);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [params, setParams] = useSearchParams();
+  const teacherFilter = params.get("teacher") || "";
+  const [students, setStudents] = useState<Student[] | null>(null);
+  const [teachers, setTeachers] = useState<TeacherSummary[]>([]);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"active" | "archived" | "">("active");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<"active" | "paused" | "archived" | "">("active");
+  const [adding, setAdding] = useState(false);
 
   function load() {
     api
-      .get<Student[]>("/students", { params: { search: search || undefined, status: status || undefined } })
+      .get<Student[]>("/students", {
+        params: { search: search || undefined, status: status || undefined, teacher: teacherFilter || undefined },
+      })
       .then((res) => setStudents(res.data));
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, status]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [search, status, teacherFilter]);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      await api.post("/students", {
-        ...form,
-        monthlyClassTarget: Number(form.monthlyClassTarget),
-        subjects: form.subjects.split(",").map((s) => s.trim()).filter(Boolean),
-      });
-      setShowForm(false);
-      setForm(emptyForm);
-      load();
-    } catch (err: any) {
-      setError(err?.response?.data?.error || "Could not create student");
-    }
-  }
+  useEffect(() => {
+    if (isAdmin) api.get<TeacherSummary[]>("/admin/teachers").then((res) => setTeachers(res.data));
+  }, [isAdmin]);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold text-slate-900">Students</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
-          <Plus size={16} /> Add student
-        </button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="page-title">Students</h1>
+        {user?.role === "teacher" && (
+          <button onClick={() => setAdding(true)} className="btn-secondary px-3 py-2">
+            <Plus size={18} /> Add
+          </button>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name…"
-            className="rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-brand-500 focus:outline-none"
-          />
-        </div>
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name" className="input pl-9" />
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {(["active", "paused", "archived", ""] as const).map((s) => (
+          <button
+            key={s || "all"}
+            onClick={() => setStatus(s)}
+            className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${
+              status === s ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"
+            }`}
+          >
+            {s ? s[0].toUpperCase() + s.slice(1) : "All"}
+          </button>
+        ))}
+      </div>
+
+      {isAdmin && (
         <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          value={teacherFilter}
+          onChange={(e) => setParams(e.target.value ? { teacher: e.target.value } : {})}
+          className="input"
         >
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="archived">Archived</option>
-          <option value="">All</option>
-        </select>
-      </div>
-
-      {students.length === 0 ? (
-        <p className="text-sm text-slate-400">No students match this view yet.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {students.map((s) => (
-            <Link
-              key={s._id}
-              to={`/students/${s._id}`}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md"
-            >
-              <div className="mb-1 flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
-                <p className="font-medium text-slate-900">{s.fullName}</p>
-              </div>
-              <p className="text-xs text-slate-500">{s.classGrade}</p>
-              <p className="mt-2 text-xs text-slate-400">Target: {s.monthlyClassTarget} classes/month</p>
-            </Link>
+          <option value="">All teachers</option>
+          {teachers.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
           ))}
-        </div>
+        </select>
       )}
 
-      {showForm && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-lg">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-slate-900">Add student</h2>
-              <button onClick={() => setShowForm(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-3">
-              <input
-                required
-                placeholder="Full name"
-                value={form.fullName}
-                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                required
-                placeholder="Class / grade"
-                value={form.classGrade}
-                onChange={(e) => setForm({ ...form, classGrade: e.target.value })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input
-                placeholder="Subjects (comma separated)"
-                value={form.subjects}
-                onChange={(e) => setForm({ ...form, subjects: e.target.value })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  placeholder="Guardian name"
-                  value={form.guardianName}
-                  onChange={(e) => setForm({ ...form, guardianName: e.target.value })}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-                <input
-                  placeholder="Guardian phone"
-                  value={form.guardianPhone}
-                  onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-500">Monthly class target</label>
-                  <input
-                    required
-                    type="number"
-                    min={1}
-                    value={form.monthlyClassTarget}
-                    onChange={(e) => setForm({ ...form, monthlyClassTarget: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-500">Joining date</label>
-                  <input
-                    required
-                    type="date"
-                    value={form.joiningDate}
-                    onChange={(e) => setForm({ ...form, joiningDate: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <textarea
-                placeholder="Notes (optional)"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-brand-600 py-2 text-sm font-medium text-white hover:bg-brand-700"
-              >
-                Save student
-              </button>
-            </form>
+      {students === null ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : students.length === 0 ? (
+        user?.role === "teacher" && status === "active" && !search ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">No students yet. Share your key — students who sign up with it appear here.</p>
+            <TeacherKeyCard />
           </div>
-        </div>
+        ) : (
+          <p className="card text-center text-sm text-slate-500">No students match.</p>
+        )
+      ) : (
+        <ul className="card divide-y divide-slate-100 p-0">
+          {students.map((s) => (
+            <li key={s._id}>
+              <Link to={`/students/${s._id}`} className="flex items-center gap-3 px-4 py-3 active:bg-slate-50">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                  style={{ background: s.color }}
+                >
+                  {s.fullName.charAt(0).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold text-slate-900">{s.fullName}</span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {s.classGrade} · {s.monthlyClassTarget} classes/month
+                    {isAdmin && typeof s.teacher === "object" ? ` · ${s.teacher.name}` : ""}
+                    {!s.user ? " · no app account" : ""}
+                  </span>
+                </span>
+                <ChevronRight size={18} className="text-slate-300" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {adding && (
+        <StudentFormModal
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            load();
+          }}
+        />
       )}
     </div>
   );
