@@ -1,4 +1,23 @@
 import { Schema, model, Document, Types } from "mongoose";
+import type { Role } from "./User";
+
+export interface DiaryActor {
+  user: Types.ObjectId;
+  name: string;
+  role: Role;
+}
+
+export interface DiaryVersion {
+  date: string;
+  subject: string;
+  topic?: string;
+  taughtToday?: string;
+  homework?: string;
+  nextPrep?: string;
+  notes?: string;
+  editedAt: Date; // when this version was replaced
+  editedBy: DiaryActor; // who replaced it
+}
 
 export interface IDiaryEntry extends Document {
   student: Types.ObjectId;
@@ -10,9 +29,35 @@ export interface IDiaryEntry extends Document {
   nextPrep?: string;
   notes?: string;
   homeworkStatus: "pending" | "completed";
+  author?: DiaryActor;
+  history: DiaryVersion[]; // previous versions, oldest first
   createdAt: Date;
   updatedAt: Date;
 }
+
+const actorSchema = new Schema<DiaryActor>(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    name: { type: String, required: true },
+    role: { type: String, enum: ["admin", "teacher", "student"], required: true },
+  },
+  { _id: false }
+);
+
+const versionSchema = new Schema<DiaryVersion>(
+  {
+    date: String,
+    subject: String,
+    topic: String,
+    taughtToday: String,
+    homework: String,
+    nextPrep: String,
+    notes: String,
+    editedAt: { type: Date, required: true },
+    editedBy: { type: actorSchema, required: true },
+  },
+  { _id: false }
+);
 
 const diaryEntrySchema = new Schema<IDiaryEntry>(
   {
@@ -25,6 +70,8 @@ const diaryEntrySchema = new Schema<IDiaryEntry>(
     nextPrep: { type: String },
     notes: { type: String },
     homeworkStatus: { type: String, enum: ["pending", "completed"], default: "pending" },
+    author: { type: actorSchema },
+    history: { type: [versionSchema], default: [] },
   },
   { timestamps: true }
 );
