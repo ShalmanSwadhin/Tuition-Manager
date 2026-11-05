@@ -1,40 +1,56 @@
 # Tuition Manager
 
-A lightweight, private web app for a solo tutor to manage students, daily
-study diaries, class attendance/calendars, and academic progress.
+A mobile-first web app for tutors and their students: attendance, a shared
+study diary, and monthly progress. Teachers and students each have their
+own accounts; an admin can see everything.
 
 Stack: React + Vite + TypeScript + Tailwind (frontend), Node + Express +
 TypeScript + MongoDB/Mongoose + JWT (backend). No microservices, no paid
 services required.
 
+## Accounts and roles
+
+| Role | How the account is made | Can |
+|---|---|---|
+| **Admin** | `npm run seed` (never through the sign-up page) | See every teacher (with their key and student count), every student, diary, attendance and report |
+| **Teacher** | Sign up → **Teacher** | Get a 6-character **teacher key**; see only their own students; mark attendance; write, edit and delete diary entries; edit student details and monthly targets; reports |
+| **Student** | Sign up → **Student**, entering their teacher's key | See their own attendance (read-only) and diary; write diary entries; edit entries they wrote; tick homework done |
+
+- The teacher key is what links a student to the right teacher — a student
+  can't join a teacher without it. Teachers can copy or share it from the
+  home screen and issue a new one from **Account** (students already
+  linked stay linked).
+- Teachers can also add a student who has no phone/account from
+  **Students → Add**.
+- Every API route enforces these rules on the server
+  (`backend/src/utils/access.ts`); the UI only hides what a role can't use.
+
 ## What's included
 
-- JWT auth with a single admin account (no public signup)
-- Students CRUD with individually configurable monthly class targets
-- Per-student monthly attendance calendar: tap a date to Mark Completed /
-  Schedule / Cancel / Remove, with a subtle green/blue/grey legend and a
-  DB-level unique constraint — one class record per student/date, full stop
-- Compact monthly summary (target/completed/remaining/progress%) above
-  each student's calendar, computed by the backend
-- Global calendar across all students, color-coded, with an agenda list
-- Quick daily diary: a compact modal to log a lesson in seconds, openable
-  from a student's profile (pre-filled) or the dashboard (pick a student);
-  supports multiple entries per day, editing, deleting, and filtering by
-  date/subject; expandable diary history inside each student's profile
-- After marking a class completed, an optional one-tap prompt offers to
-  open the diary modal prefilled to that student/date — never forced
-- "Hide attendance" toggle on each student's profile: blurs the monthly
-  summary and calendar (and disables taps on it) for moments when the
-  student can see your screen — tap the overlay or the button again to
-  reveal. There's no student login in this app at all, so this is purely
-  for shared-screen moments, not app-level access control.
-- Exam results with progress-at-a-glance
-- Dashboard with summary cards, today's schedule, recent diary activity,
-  students approaching their monthly target, and a quick-diary shortcut
-- Monthly report per student + overall totals, with a print-friendly view
+- **Attendance by tapping**: on a student's page a teacher taps a day to
+  mark the student present, and taps a green day again to undo. Future
+  days can't be marked. The dashboard has a one-tap **Mark** button per
+  student for today. One record per student/date is enforced by a unique
+  index in MongoDB.
+- **Monthly summary** (present / target / remaining / progress) above
+  each student's calendar.
+- **Shared diary** with subject, topic, what was covered, homework, next
+  class prep and notes. Students write their own entries; teachers write
+  from the student's page or the Diary tab. Whenever an entry's content
+  is changed, the previous version is kept: the entry shows an **Edited**
+  tag (**Edited by student** when a student made the last change), and
+  tapping it shows every earlier version as plain text with who changed
+  it and when. Ticking homework done is not counted as an edit. Students
+  can't delete entries, so edits can't be hidden.
+- After marking a day present, an optional prompt offers to add that
+  day's diary entry.
+- Calendar across all of a teacher's students, monthly reports (print
+  friendly), exam results on the student page.
+- Mobile-first UI: bottom tab bar, bottom-sheet forms, large tap targets,
+  16px inputs (no iOS zoom), safe-area padding for notched phones; a
+  sidebar layout on desktop.
 - All class/diary dates are stored and computed as Asia/Dhaka calendar
-  dates (plain YYYY-MM-DD strings), avoiding UTC day-boundary bugs
-- Backend and frontend unit tests for the attendance math and date logic
+  dates (plain YYYY-MM-DD strings), avoiding UTC day-boundary bugs.
 
 ## Project structure
 
@@ -53,7 +69,7 @@ Requires Node 20+ and a MongoDB you can reach (a local `mongod` on
 ```bash
 cp backend/.env.example backend/.env   # set JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD (and MONGODB_URI if not local)
 npm run install:all                    # installs root, backend and frontend deps
-npm run seed                           # creates your one admin account
+npm run seed                           # creates the admin account
 ```
 
 The frontend needs no `.env`: it calls same-origin `/api`, which Vite
@@ -66,13 +82,14 @@ npm run dev     # backend on http://localhost:5000, frontend on http://localhost
 ```
 
 Open http://localhost:5173 and log in with the ADMIN_EMAIL / ADMIN_PASSWORD
-from `backend/.env`. You can also run each side on its own with
+from `backend/.env`, or use **Create an account** to sign up as a teacher,
+then as a student with that teacher's key. You can also run each side on its own with
 `npm run dev` inside `backend/` or `frontend/`.
 
 ### 3. Running the tests
 
 ```bash
-cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 60 tests
+cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 95 tests
 cd frontend && npm test          # vitest — attendance math on the UI side
 ```
 
@@ -82,20 +99,15 @@ cd frontend && npm test          # vitest — attendance math on the UI side
 - `npm run test:api` — Jest + Supertest, hitting the real Express app
   (real auth middleware, real Zod validation, real rate limiting, real
   CORS/Helmet headers) with only the MongoDB model calls mocked. Covers
-  every route, including the attendance calendar's upsert-not-duplicate
-  rule, the monthly report's exact numbers against the spec's acceptance
-  scenarios, and student archive-vs-hard-delete.
+  every route, including role access (teachers only reach their own
+  students, students only themselves), sign-up with a teacher key, the
+  attendance toggle, diary edit history, the monthly report's exact
+  numbers, and student archive-vs-hard-delete.
 
-**What these tests don't cover:** a real MongoDB instance. This sandbox
-can't reach `fastdl.mongodb.org` to run an in-memory Mongo for true
-end-to-end tests, so the database-level unique index (one class record per
-student/date) has only been exercised by simulating its duplicate-key
-error, not by an actual duplicate insert. Nobody has clicked through the
-UI in a browser, and the full login → mark attendance → see it reflected
-flow has never run against a live database. Running `npm run seed` and
-`npm run dev` against a real (even local) MongoDB, then walking through
-the acceptance-testing scenarios from the original spec by hand, is the
-one step I couldn't do for you here.
+The Jest tests mock MongoDB. The full flows (sign-ups, key linking,
+scoping between two teachers, attendance toggle, diary edit history,
+reports) were also run end-to-end against a real local MongoDB, and the
+UI was checked at phone size for each role.
 
 **One real bug found and fixed during this testing:** Express 4 doesn't
 forward a failed async database call to the error handler by itself — a
@@ -137,7 +149,8 @@ Environment variables: `NODE_ENV=production`, `MONGODB_URI` (Atlas),
 `--include=dev` is required: with `NODE_ENV=production`, a plain
 `npm install` skips TypeScript and the build fails.
 
-**Create the admin account.** Render's free tier has no shell, so run the
+**Create the admin account.** (Teachers and students sign up in the app;
+only the admin comes from the seed script.) Render's free tier has no shell, so run the
 seed script from your own machine against Atlas, once:
 
 ```powershell
@@ -177,30 +190,25 @@ stick.
 
 ## Notes on business rules implemented
 
-- Only `status: "completed"` class sessions count toward monthly targets;
-  scheduled and cancelled never do.
-- A student can have exactly one class record per calendar date, full
-  stop — enforced by a (non-partial) unique index on `{student, date}` in
-  MongoDB, not just app code. The calendar's Mark Completed / Schedule /
-  Cancel actions all go through `POST /api/classes/mark`, which upserts
-  that one record rather than ever creating a duplicate.
+- Only `status: "completed"` class sessions count toward monthly targets.
+  Tapping a day creates that record; tapping again deletes it. Records
+  left over from the older scheduled/cancelled flow turn into present
+  when tapped.
+- A student can have exactly one class record per calendar date —
+  enforced by a unique index on `{student, date}` in MongoDB, not just app
+  code. `POST /api/classes/toggle` never creates a duplicate.
 - Creating a diary entry never touches attendance, and marking attendance
-  never auto-creates a diary entry — the "add a diary entry?" prompt after
-  completing a class is an offer, not a side effect.
+  never auto-creates a diary entry — the "add diary" prompt after marking
+  present is an offer, not a side effect.
 - Changing a student's `monthlyClassTarget` never rewrites past
   `ClassSession` records — historical months are computed from the
-  sessions that existed in that month, independent of the student's
-  current target value.
+  sessions that existed in that month.
 - Archiving a student (the default delete action) preserves all of
   their class/diary/exam history; only an explicit `?hard=true` delete
   removes the student document itself, and even then historical records
   are left in place.
-
-## What's a starting point vs. done
-
-This is a complete, working scaffold covering every feature in the spec,
-but as a solo-tutor tool you'll likely want to adjust details to taste —
-e.g. richer calendar views (week/agenda toggle), PDF export for reports,
-photo upload storage, and exam performance charts are stubbed at a basic
-level and worth iterating on. For that kind of ongoing, multi-step build
-work, Claude Code is a better fit than chat.
+- Before roles existed, the admin lived in an `admins` collection. On
+  startup the server copies any such admin into `users` (role `admin`),
+  so an existing admin login keeps working without re-seeding. Old
+  sessions are signed out once and need a fresh login.
+- Reminders (`/api/reminders`) have no owner yet, so they are admin-only.
