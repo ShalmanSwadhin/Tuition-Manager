@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import ClassSession from "../models/ClassSession";
+import Student from "../models/Student";
 import { requireAuth, requireRole, AuthedRequest } from "../middleware/auth";
 import { validateBody, isValidObjectId } from "../middleware/validate";
 import { monthBounds, isValidDateStr, todayDhakaStr } from "../utils/dateUtils";
@@ -19,7 +20,16 @@ const toggleSchema = z.object({
 router.get("/", async (req: AuthedRequest, res) => {
   const { student, month, year, from, to } = req.query as Record<string, string | undefined>;
   const filter: Record<string, unknown> = {};
-  if (student) {
+  if (req.user!.role === "student") {
+    // A student only ever reads their own attendance, and only if their
+    // teacher hasn't hidden it.
+    const own = await Student.findOne({ user: req.user!.id }).select("_id attendanceVisible");
+    if (!own || (student && student !== own.id)) return res.status(404).json({ error: "Student not found" });
+    if (own.attendanceVisible === false) {
+      return res.status(403).json({ error: "Your teacher has hidden attendance" });
+    }
+    filter.student = own._id;
+  } else if (student) {
     if (!isValidObjectId(student)) return res.status(400).json({ error: "Invalid student id" });
     if (!(await findAccessibleStudent(req.user!, student))) return res.status(404).json({ error: "Student not found" });
     filter.student = student;

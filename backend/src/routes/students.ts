@@ -27,9 +27,12 @@ const studentSchema = z.object({
   joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   status: z.enum(["active", "paused", "archived"]).optional(),
   color: z.string().optional(),
+  attendanceVisible: z.boolean().optional(),
 });
 
 const updateSchema = studentSchema.partial();
+
+const visibilitySchema = z.object({ attendanceVisible: z.boolean() });
 
 // GET /api/students?status=active&search=foo&teacher=id (teacher filter: admin only)
 router.get("/", async (req: AuthedRequest, res) => {
@@ -60,6 +63,18 @@ router.get("/:id", async (req: AuthedRequest, res) => {
   if (!student) return res.status(404).json({ error: "Student not found" });
   res.json(student);
 });
+
+// Show or hide the attendance calendar for every student in the caller's
+// scope at once (a teacher's own students; everyone for admin).
+router.patch(
+  "/attendance-visibility",
+  requireRole("admin", "teacher"),
+  validateBody(visibilitySchema),
+  async (req: AuthedRequest, res) => {
+    const result = await Student.updateMany(studentScope(req.user!), { attendanceVisible: req.body.attendanceVisible });
+    res.json({ updated: result.modifiedCount });
+  }
+);
 
 router.patch("/:id", requireRole("admin", "teacher"), validateBody(updateSchema), async (req: AuthedRequest, res) => {
   if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid id" });
