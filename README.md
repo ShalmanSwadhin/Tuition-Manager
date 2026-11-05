@@ -13,8 +13,8 @@ services required.
 | Role | How the account is made | Can |
 |---|---|---|
 | **Admin** | `npm run seed` (never through the sign-up page) | See every teacher (with their key and student count), every student, diary, attendance and report |
-| **Teacher** | Sign up → **Teacher** | Get a 6-character **teacher key**; see only their own students; mark attendance; write, edit and delete diary entries; edit student details and monthly targets; reports |
-| **Student** | Sign up → **Student**, entering their teacher's key | See their own attendance (read-only) and diary; write diary entries; edit entries they wrote; tick homework done |
+| **Teacher** | Sign up → **Teacher** | Get a 6-character **teacher key**; see only their own students; mark attendance; write, edit and delete diary entries; share files with a student; post notices to all their students; record exam results; edit student details, class days/time and monthly targets; send a diary entry to the guardian on WhatsApp; reports |
+| **Student** | Sign up → **Student**, entering their teacher's key | See their own attendance (read-only), notices, study materials, exam results and diary; write diary entries; edit entries they wrote; tick homework done |
 
 - The teacher key is what links a student to the right teacher — a student
   can't join a teacher without it. Teachers can copy or share it from the
@@ -44,6 +44,24 @@ services required.
   can't delete entries, so edits can't be hidden.
 - After marking a day present, an optional prompt offers to add that
   day's diary entry.
+- **Study materials**: on a student's page the teacher uploads any file
+  (photos, PDF, Word, PowerPoint, …, up to 20 MB). Only that student and
+  their teacher (and the admin) can see or download it. Images and PDFs
+  open in the browser; every other type downloads, so an uploaded HTML or
+  SVG file can never run inside the app.
+- **Notices**: a teacher posts a notice once and all of their students see
+  it on their home screen (marked **NEW** until they open Notices).
+- **Send diary to guardian on WhatsApp**: each diary entry has a
+  **WhatsApp** button for the teacher. It opens WhatsApp on the teacher's
+  own phone with the entry written out and the guardian's number filled
+  in (local numbers like `01712345678` get the `880` code added); the
+  teacher taps send, so it comes from their own number. This uses
+  WhatsApp's free click-to-chat link — sending automatically, without the
+  teacher tapping send, would need the paid WhatsApp Business API.
+- **On the student page**: class days and time (set by the teacher), a
+  **Homework to do** list built from diary entries that have pending
+  homework (tick to finish), and **exam results** with a percentage bar
+  per exam and an overall average.
 - Calendar across all of a teacher's students, monthly reports (print
   friendly), exam results on the student page.
 - Mobile-first UI: bottom tab bar, bottom-sheet forms, large tap targets,
@@ -89,8 +107,8 @@ then as a student with that teacher's key. You can also run each side on its own
 ### 3. Running the tests
 
 ```bash
-cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 95 tests
-cd frontend && npm test          # vitest — attendance math on the UI side
+cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 116 tests
+cd frontend && npm test          # vitest — attendance math, WhatsApp number/message formatting
 ```
 
 `backend`'s tests run at two levels:
@@ -186,7 +204,11 @@ stick.
 - Free Render services sleep after ~15 minutes idle; the first request
   afterwards can take ~30–60s while it wakes. The UI shows "Loading…"
   meanwhile; reload if a request times out.
-- Atlas M0 gives 512 MB, plenty for this app.
+- Atlas M0 gives 512 MB. Uploaded files are stored in the database
+  (GridFS), so they use this space — roughly a hundred 5 MB slide decks.
+  If Atlas loaded its sample data into your cluster, deleting the
+  `sample_*` databases frees ~140 MB. Render's own disk is wiped on every
+  deploy, which is why files aren't kept there.
 
 ## Notes on business rules implemented
 
