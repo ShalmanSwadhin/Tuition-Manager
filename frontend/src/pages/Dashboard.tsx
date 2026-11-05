@@ -4,6 +4,7 @@ import { Check, CalendarDays, ChevronRight, UserPlus } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import TeacherKeyCard from "../components/TeacherKeyCard";
+import NoticeBoard from "../components/NoticeBoard";
 import { formatDate } from "../utils/date";
 import { summarize } from "../utils/attendance";
 import type { DashboardSummary, StudentCard } from "../types";
@@ -132,6 +133,8 @@ export default function Dashboard() {
           </ul>
         )}
       </section>
+
+      {user.role === "teacher" && <NoticeBoard limit={2} />}
 
       {data.recentDiaryEntries.length > 0 && (
         <section>

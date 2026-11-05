@@ -1,6 +1,8 @@
-import { LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
+import { LogOut, ChevronRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import TeacherKeyCard from "../components/TeacherKeyCard";
+import { NAV } from "../components/Layout";
 
 const ROLE_LABEL = { admin: "Admin", teacher: "Teacher", student: "Student" } as const;
 
@@ -25,6 +27,23 @@ export default function Account() {
       </div>
 
       {user.role === "teacher" && <TeacherKeyCard allowRegenerate />}
+
+      {/* Pages that don't fit in the phone tab bar */}
+      {NAV[user.role].some((i) => i.desktopOnly) && (
+        <ul className="card divide-y divide-slate-100 p-0 md:hidden">
+          {NAV[user.role]
+            .filter((i) => i.desktopOnly)
+            .map(({ to, label, icon: Icon }) => (
+              <li key={to}>
+                <Link to={to} className="flex items-center gap-3 px-4 py-3.5 font-medium text-slate-800 active:bg-slate-50">
+                  <Icon size={20} className="text-slate-500" />
+                  <span className="flex-1">{label}</span>
+                  <ChevronRight size={18} className="text-slate-300" />
+                </Link>
+              </li>
+            ))}
+        </ul>
+      )}
 
       <button onClick={logout} className="btn-secondary w-full py-3 text-red-600">
         <LogOut size={18} /> Log out

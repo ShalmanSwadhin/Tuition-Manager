@@ -7,26 +7,28 @@ import {
   FileBarChart,
   CalendarDays,
   UserCircle,
+  Megaphone,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../types";
 
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
   end?: boolean;
-  desktopOnly?: boolean; // keeps the phone tab bar to at most five tabs
+  desktopOnly?: boolean; // keeps the phone tab bar to five tabs; listed under Account → More instead
 }
 
-const NAV: Record<Role, NavItem[]> = {
+export const NAV: Record<Role, NavItem[]> = {
   admin: [
     { to: "/", label: "Home", icon: Home, end: true },
     { to: "/teachers", label: "Teachers", icon: GraduationCap },
     { to: "/students", label: "Students", icon: Users },
     { to: "/calendar", label: "Calendar", icon: CalendarDays, desktopOnly: true },
+    { to: "/notices", label: "Notices", icon: Megaphone, desktopOnly: true },
     { to: "/reports", label: "Reports", icon: FileBarChart },
     { to: "/account", label: "Account", icon: UserCircle },
   ],
@@ -34,13 +36,15 @@ const NAV: Record<Role, NavItem[]> = {
     { to: "/", label: "Home", icon: Home, end: true },
     { to: "/students", label: "Students", icon: Users },
     { to: "/diary", label: "Diary", icon: BookOpen },
+    { to: "/notices", label: "Notices", icon: Megaphone },
     { to: "/calendar", label: "Calendar", icon: CalendarDays, desktopOnly: true },
-    { to: "/reports", label: "Reports", icon: FileBarChart },
+    { to: "/reports", label: "Reports", icon: FileBarChart, desktopOnly: true },
     { to: "/account", label: "Account", icon: UserCircle },
   ],
   student: [
     { to: "/", label: "Home", icon: Home, end: true },
     { to: "/diary", label: "My diary", icon: BookOpen },
+    { to: "/notices", label: "Notices", icon: Megaphone },
     { to: "/account", label: "Account", icon: UserCircle },
   ],
 };

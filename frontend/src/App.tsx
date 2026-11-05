@@ -12,6 +12,7 @@ import GlobalCalendar from "./pages/GlobalCalendar";
 import Diary from "./pages/Diary";
 import Reports from "./pages/Reports";
 import Account from "./pages/Account";
+import Notices from "./pages/Notices";
 
 // Students land on their own page; teachers and admin on the dashboard.
 function Home() {
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/diary" element={<Diary />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/notices" element={<Notices />} />
           <Route element={<ProtectedRoute roles={["admin", "teacher"]} />}>
             <Route path="/students" element={<Students />} />
             <Route path="/students/:id" element={<StudentProfile />} />
