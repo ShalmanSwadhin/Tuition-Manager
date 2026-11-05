@@ -11,6 +11,7 @@ export interface AuthUser {
 }
 
 export type StudentStatus = "active" | "paused" | "archived";
+export type Weekday = "SUN" | "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT";
 
 export interface Student {
   _id: string;
@@ -24,7 +25,8 @@ export interface Student {
   address?: string;
   monthlyClassTarget: number;
   defaultClassDurationMinutes?: number;
-  preferredDays?: string[];
+  preferredDays?: Weekday[];
+  classTime?: string; // "HH:MM"
   notes?: string;
   joiningDate: string;
   status: StudentStatus;
@@ -67,7 +69,7 @@ export interface DiaryVersion extends DiaryContent {
 
 export interface DiaryEntry extends DiaryContent {
   _id: string;
-  student: string | { _id: string; fullName: string };
+  student: string | { _id: string; fullName: string; guardianPhone?: string };
   homeworkStatus: "pending" | "completed";
   author?: DiaryActor;
   history: DiaryVersion[];
@@ -110,6 +112,25 @@ export interface DashboardSummary {
   };
   recentDiaryEntries: DiaryEntry[];
   studentCards: StudentCard[];
+}
+
+export interface StudentFile {
+  _id: string;
+  student: string;
+  uploadedBy?: { _id: string; name: string };
+  filename: string;
+  contentType: string;
+  size: number;
+  note?: string;
+  createdAt: string;
+}
+
+export interface Notice {
+  _id: string;
+  teacher: string | { _id: string; name: string };
+  title: string;
+  body?: string;
+  createdAt: string;
 }
 
 export interface TeacherSummary {
