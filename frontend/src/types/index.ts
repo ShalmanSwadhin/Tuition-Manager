@@ -1,3 +1,15 @@
+export type Role = "admin" | "teacher" | "student";
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  teacherKey?: string; // teachers
+  studentId?: string; // students: their own profile id
+  teacherName?: string; // students
+}
+
 export type StudentStatus = "active" | "paused" | "archived";
 
 export interface Student {
@@ -17,6 +29,8 @@ export interface Student {
   joiningDate: string;
   status: StudentStatus;
   color: string;
+  teacher?: string | { _id: string; name: string };
+  user?: string | { _id: string; email: string };
 }
 
 export type ClassStatus = "scheduled" | "completed" | "cancelled";
@@ -30,9 +44,13 @@ export interface ClassSession {
   durationMinutes?: number;
 }
 
-export interface DiaryEntry {
-  _id: string;
-  student: string | { _id: string; fullName: string };
+export interface DiaryActor {
+  user: string;
+  name: string;
+  role: Role;
+}
+
+export interface DiaryContent {
   date: string;
   subject: string;
   topic?: string;
@@ -40,7 +58,21 @@ export interface DiaryEntry {
   homework?: string;
   nextPrep?: string;
   notes?: string;
+}
+
+export interface DiaryVersion extends DiaryContent {
+  editedAt: string;
+  editedBy: DiaryActor;
+}
+
+export interface DiaryEntry extends DiaryContent {
+  _id: string;
+  student: string | { _id: string; fullName: string };
   homeworkStatus: "pending" | "completed";
+  author?: DiaryActor;
+  history: DiaryVersion[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExamResult {
@@ -54,22 +86,37 @@ export interface ExamResult {
   comments?: string;
 }
 
+export interface StudentCard {
+  id: string;
+  fullName: string;
+  classGrade: string;
+  color: string;
+  monthlyClassTarget: number;
+  completed: number;
+  presentToday: boolean;
+  hasAccount: boolean;
+  teacherName?: string;
+}
+
 export interface DashboardSummary {
+  today: string;
   totals: {
     activeStudents: number;
     completedThisMonth: number;
     remainingThisMonth: number;
     studentsAtTarget: number;
+    presentToday: number;
+    teachers?: number;
   };
-  todaysSchedule: ClassSession[];
   recentDiaryEntries: DiaryEntry[];
-  approachingLimit: { id: string; fullName: string; completed: number; target: number }[];
-  studentCards: {
-    id: string;
-    fullName: string;
-    classGrade: string;
-    color: string;
-    monthlyClassTarget: number;
-    completed: number;
-  }[];
+  studentCards: StudentCard[];
+}
+
+export interface TeacherSummary {
+  id: string;
+  name: string;
+  email: string;
+  teacherKey: string;
+  createdAt: string;
+  studentCount: number;
 }
