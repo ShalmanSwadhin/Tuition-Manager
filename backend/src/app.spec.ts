@@ -4,11 +4,12 @@ process.env.CORS_ORIGIN = "http://localhost:5173";
 
 import request from "supertest";
 import app from "./app";
-import Admin from "./models/Admin";
+import User from "./models/User";
 import Student from "./models/Student";
 import { authCookieFor } from "./test-utils/authCookie";
+import { mockQuery } from "./test-utils/mockQuery";
 
-jest.mock("./models/Admin");
+jest.mock("./models/User");
 jest.mock("./models/Student");
 
 describe("GET /api/health", () => {
@@ -53,8 +54,8 @@ describe("404 for unmatched API routes", () => {
 });
 
 describe("login rate limiting (real express-rate-limit middleware, not mocked)", () => {
-  it("blocks after 10 login attempts within the window", async () => {
-    (Admin.findOne as jest.Mock).mockResolvedValue(null);
+  it("blocks after 10 login attempts for the same email within the window", async () => {
+    (User.findOne as jest.Mock).mockResolvedValue(null);
 
     const results: number[] = [];
     for (let i = 0; i < 11; i++) {
@@ -62,11 +63,17 @@ describe("login rate limiting (real express-rate-limit middleware, not mocked)",
       results.push(res.status);
     }
 
-    // First 10 are handled normally (401, since Admin.findOne resolves null);
+    // First 10 are handled normally (401, since User.findOne resolves null);
     // the 11th is the rate limiter itself responding, before the handler runs.
     expect(results.slice(0, 10).every((s) => s === 401)).toBe(true);
     expect(results[10]).toBe(429);
   }, 15000);
+
+  it("counts per email, so one user's failed attempts don't lock out others behind the same proxy IP", async () => {
+    (User.findOne as jest.Mock).mockResolvedValue(null);
+    const res = await request(app).post("/api/auth/login").send({ email: "someone-else@example.com", password: "wrong" });
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("async route errors reach the client instead of hanging", () => {
@@ -76,9 +83,7 @@ describe("async route errors reach the client instead of hanging", () => {
   // instead of ever resolving -- a DB hiccup in production would leave the
   // request open forever. This asserts the fix is actually wired in.
   it("a rejected promise inside a route handler results in a 500, not a hang", async () => {
-    (Student.find as jest.Mock).mockReturnValue({
-      sort: jest.fn().mockRejectedValue(new Error("simulated DB failure")),
-    });
+    (Student.find as jest.Mock).mockReturnValue(mockQuery(null, new Error("simulated DB failure")));
 
     const res = await request(app).get("/api/students").set("Cookie", authCookieFor("admin-1"));
 

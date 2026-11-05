@@ -4,12 +4,18 @@ process.env.NODE_ENV = "test";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import app from "../app";
-import Admin from "../models/Admin";
+import User from "../models/User";
+import Student from "../models/Student";
 import { authCookieFor } from "../test-utils/authCookie";
+import { mockQuery } from "../test-utils/mockQuery";
 
-jest.mock("../models/Admin");
+jest.mock("../models/User");
+jest.mock("../models/Student");
 
-const mockedAdmin = Admin as jest.Mocked<typeof Admin>;
+const mockedUser = User as jest.Mocked<typeof User>;
+const mockedStudent = Student as jest.Mocked<typeof Student>;
+
+afterEach(() => jest.clearAllMocks());
 
 describe("POST /api/auth/login", () => {
   const plainPassword = "correct-horse-battery-staple";
@@ -19,10 +25,8 @@ describe("POST /api/auth/login", () => {
     passwordHash = await bcrypt.hash(plainPassword, 4); // low cost factor, just for test speed
   });
 
-  afterEach(() => jest.clearAllMocks());
-
   it("rejects an unknown email with 401 (never reveals which part was wrong)", async () => {
-    mockedAdmin.findOne.mockResolvedValue(null as any);
+    mockedUser.findOne.mockResolvedValue(null as any);
 
     const res = await request(app).post("/api/auth/login").send({ email: "nobody@example.com", password: "x" });
 
@@ -31,27 +35,27 @@ describe("POST /api/auth/login", () => {
   });
 
   it("rejects a wrong password with 401", async () => {
-    mockedAdmin.findOne.mockResolvedValue({ id: "admin-1", passwordHash, email: "me@example.com" } as any);
+    mockedUser.findOne.mockResolvedValue({ id: "u1", role: "admin", passwordHash, email: "me@example.com" } as any);
 
     const res = await request(app).post("/api/auth/login").send({ email: "me@example.com", password: "wrong" });
 
     expect(res.status).toBe(401);
   });
 
-  it("logs in with correct credentials and sets an httpOnly cookie", async () => {
-    mockedAdmin.findOne.mockResolvedValue({
-      id: "admin-1",
+  it("logs a teacher in, returns their role and key, and sets an httpOnly cookie", async () => {
+    mockedUser.findOne.mockResolvedValue({
+      id: "t1",
       name: "Turgut",
       email: "me@example.com",
+      role: "teacher",
+      teacherKey: "K7M3QX",
       passwordHash,
     } as any);
 
-    const res = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "me@example.com", password: plainPassword });
+    const res = await request(app).post("/api/auth/login").send({ email: "me@example.com", password: plainPassword });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: "admin-1", name: "Turgut", email: "me@example.com" });
+    expect(res.body).toEqual({ id: "t1", name: "Turgut", email: "me@example.com", role: "teacher", teacherKey: "K7M3QX" });
     expect(res.headers["set-cookie"]?.[0]).toMatch(/token=.*HttpOnly/i);
   });
 
@@ -61,23 +65,114 @@ describe("POST /api/auth/login", () => {
   });
 });
 
-describe("GET /api/auth/me", () => {
-  afterEach(() => jest.clearAllMocks());
+describe("POST /api/auth/register", () => {
+  it("creates a teacher with a 6-character key", async () => {
+    mockedUser.exists.mockResolvedValue(null as any);
+    mockedUser.create.mockImplementation(async (doc: any) => ({ ...doc, id: "t1" }) as any);
 
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "teacher", name: "Ms Rahman", email: "Rahman@Example.com", password: "secret1" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.role).toBe("teacher");
+    expect(res.body.teacherKey).toMatch(/^[A-Z2-9]{6}$/);
+    expect(mockedUser.create).toHaveBeenCalledWith(expect.objectContaining({ email: "rahman@example.com", role: "teacher" }));
+    expect(mockedStudent.create).not.toHaveBeenCalled();
+  });
+
+  it("409s when the email is taken", async () => {
+    mockedUser.exists.mockResolvedValue({ _id: "x" } as any);
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "teacher", name: "A", email: "a@example.com", password: "secret1" });
+    expect(res.status).toBe(409);
+  });
+
+  it("rejects a student whose teacher key matches no teacher", async () => {
+    mockedUser.exists.mockResolvedValue(null as any);
+    mockedUser.findOne.mockResolvedValue(null as any);
+
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "student", name: "Rafi", email: "rafi@example.com", password: "secret1", teacherKey: "nope99", classGrade: "8" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no teacher/i);
+    expect(mockedUser.findOne).toHaveBeenCalledWith({ role: "teacher", teacherKey: "NOPE99" });
+    expect(mockedUser.create).not.toHaveBeenCalled();
+  });
+
+  it("links a student to the teacher whose key they entered", async () => {
+    mockedUser.exists.mockResolvedValue(null as any);
+    mockedUser.findOne.mockResolvedValue({ _id: "teacher-oid", role: "teacher" } as any);
+    mockedUser.create.mockImplementation(async (doc: any) => ({ ...doc, id: "s-user", _id: "s-user-oid" }) as any);
+    mockedStudent.create.mockResolvedValue({} as any);
+    mockedStudent.findOne.mockReturnValue(mockQuery({ id: "profile-1", teacher: { name: "Ms Rahman" } }));
+
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "student", name: "Rafi", email: "rafi@example.com", password: "secret1", teacherKey: "k7m3qx", classGrade: "8" });
+
+    expect(res.status).toBe(201);
+    expect(mockedStudent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ fullName: "Rafi", classGrade: "8", teacher: "teacher-oid", user: "s-user-oid" })
+    );
+    expect(res.body).toMatchObject({ role: "student", studentId: "profile-1", teacherName: "Ms Rahman" });
+  });
+
+  it("requires a teacher key and class for students", async () => {
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "student", name: "Rafi", email: "rafi@example.com", password: "secret1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("can't be used to create an admin", async () => {
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "admin", name: "Sneaky", email: "s@example.com", password: "secret1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("enforces a minimum password length", async () => {
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ role: "teacher", name: "A", email: "a@example.com", password: "123" });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /api/auth/me", () => {
   it("401s with no auth cookie", async () => {
     const res = await request(app).get("/api/auth/me");
     expect(res.status).toBe(401);
   });
 
-  it("returns the admin profile with a valid cookie", async () => {
-    (Admin.findById as jest.Mock) = jest.fn().mockReturnValue({
-      select: jest.fn().mockResolvedValue({ id: "admin-1", name: "Turgut", email: "me@example.com" }),
-    });
+  it("returns the signed-in user", async () => {
+    mockedUser.findById.mockResolvedValue({ id: "admin-1", name: "Turgut", email: "me@example.com", role: "admin" } as any);
 
     const res = await request(app).get("/api/auth/me").set("Cookie", authCookieFor("admin-1"));
 
     expect(res.status).toBe(200);
-    expect(res.body.email).toBe("me@example.com");
+    expect(res.body).toEqual({ id: "admin-1", name: "Turgut", email: "me@example.com", role: "admin" });
+  });
+});
+
+describe("POST /api/auth/teacher-key", () => {
+  it("issues a teacher a new key", async () => {
+    mockedUser.exists.mockResolvedValue(null as any);
+    (mockedUser.findByIdAndUpdate as jest.Mock).mockImplementation(async (_id: any, update: any) => update);
+
+    const res = await request(app).post("/api/auth/teacher-key").set("Cookie", authCookieFor("t1", "teacher"));
+
+    expect(res.status).toBe(200);
+    expect(res.body.teacherKey).toMatch(/^[A-Z2-9]{6}$/);
+  });
+
+  it("is teachers only", async () => {
+    const res = await request(app).post("/api/auth/teacher-key").set("Cookie", authCookieFor("s1", "student"));
+    expect(res.status).toBe(403);
   });
 });
 

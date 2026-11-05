@@ -3,172 +3,135 @@ process.env.NODE_ENV = "test";
 
 import request from "supertest";
 import app from "../app";
-import Student from "../models/Student";
 import ClassSession from "../models/ClassSession";
+import Student from "../models/Student";
 import { authCookieFor } from "../test-utils/authCookie";
+import { mockQuery } from "../test-utils/mockQuery";
+import { todayDhakaStr } from "../utils/dateUtils";
 
-jest.mock("../models/Student");
 jest.mock("../models/ClassSession");
+jest.mock("../models/Student");
 
-const mockedStudent = Student as jest.Mocked<typeof Student>;
 const mockedSession = ClassSession as jest.Mocked<typeof ClassSession>;
-const cookie = authCookieFor("admin-1");
+const mockedStudent = Student as jest.Mocked<typeof Student>;
+const teacher = authCookieFor("teacher-1", "teacher");
+const student = authCookieFor("student-user-1", "student");
+const studentId = "507f1f77bcf86cd799439011";
+const pastDate = "2026-01-15";
 
-beforeEach(() => jest.clearAllMocks());
-
-describe("auth guard", () => {
-  it("401s every /api/classes route without a cookie", async () => {
-    expect((await request(app).get("/api/classes")).status).toBe(401);
-    expect((await request(app).post("/api/classes/mark").send({})).status).toBe(401);
-  });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockedStudent.findOne.mockResolvedValue({ _id: studentId } as any); // accessible by default
 });
 
-describe("GET /api/classes", () => {
-  it("builds a month/year date range filter and returns sessions", async () => {
-    const sortMock = jest.fn().mockResolvedValue([{ _id: "s1", date: "2026-09-10", status: "completed" }]);
-    const populateMock = jest.fn().mockReturnValue({ sort: sortMock });
-    mockedSession.find.mockReturnValue({ populate: populateMock } as any);
+describe("POST /api/classes/toggle", () => {
+  const toggle = (body: object, cookie = teacher) => request(app).post("/api/classes/toggle").set("Cookie", cookie).send(body);
 
-    const res = await request(app)
-      .get("/api/classes")
-      .query({ student: "507f1f77bcf86cd799439011", month: 9, year: 2026 })
-      .set("Cookie", cookie);
+  it("first tap on an empty day marks the student present", async () => {
+    mockedSession.findOne.mockResolvedValue(null as any);
+    mockedSession.findOneAndUpdate.mockResolvedValue({ _id: "c1", date: pastDate, status: "completed" } as any);
 
-    expect(res.status).toBe(200);
-    expect(mockedSession.find).toHaveBeenCalledWith(
-      expect.objectContaining({
-        student: "507f1f77bcf86cd799439011",
-        date: { $gte: "2026-09-01", $lte: "2026-09-30" },
-      })
-    );
-  });
-
-  it("400s on an invalid student id", async () => {
-    const res = await request(app).get("/api/classes").query({ student: "not-an-id" }).set("Cookie", cookie);
-    expect(res.status).toBe(400);
-  });
-});
-
-describe("POST /api/classes/mark", () => {
-  const studentId = "507f1f77bcf86cd799439011";
-
-  it("404s if the student doesn't exist", async () => {
-    mockedStudent.findById.mockResolvedValue(null as any);
-
-    const res = await request(app)
-      .post("/api/classes/mark")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "2026-09-10", status: "completed" });
-
-    expect(res.status).toBe(404);
-  });
-
-  it("creates (201) a new record when the date has no existing one", async () => {
-    mockedStudent.findById.mockResolvedValue({ _id: studentId } as any);
-    mockedSession.findOne.mockResolvedValue(null as any); // nothing there yet
-    mockedSession.findOneAndUpdate.mockResolvedValue({
-      _id: "cs1",
-      student: studentId,
-      date: "2026-09-10",
-      status: "completed",
-    } as any);
-
-    const res = await request(app)
-      .post("/api/classes/mark")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "2026-09-10", status: "completed" });
+    const res = await toggle({ student: studentId, date: pastDate });
 
     expect(res.status).toBe(201);
+    expect(res.body.present).toBe(true);
     expect(mockedSession.findOneAndUpdate).toHaveBeenCalledWith(
-      { student: studentId, date: "2026-09-10" },
-      expect.objectContaining({ status: "completed" }),
+      { student: studentId, date: pastDate },
+      { student: studentId, date: pastDate, status: "completed" },
       expect.objectContaining({ upsert: true })
     );
   });
 
-  it("updates (200, not 201) when a record already exists for that date -- this is THE rule: one record per student/date, status transitions instead of new rows", async () => {
-    mockedStudent.findById.mockResolvedValue({ _id: studentId } as any);
-    mockedSession.findOne.mockResolvedValue({ _id: "cs1", status: "scheduled" } as any); // already there
-    mockedSession.findOneAndUpdate.mockResolvedValue({
-      _id: "cs1",
-      student: studentId,
-      date: "2026-09-10",
-      status: "completed",
-    } as any);
+  it("tapping a present day removes the mark", async () => {
+    mockedSession.findOne.mockResolvedValue({ _id: "c1", status: "completed" } as any);
+    mockedSession.deleteOne.mockResolvedValue({} as any);
 
-    const res = await request(app)
-      .post("/api/classes/mark")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "2026-09-10", status: "completed" });
+    const res = await toggle({ student: studentId, date: pastDate });
 
     expect(res.status).toBe(200);
-    // Only one upsert call ever happens -- never a second ClassSession.create
-    expect(mockedSession.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(res.body).toEqual({ present: false });
+    expect(mockedSession.deleteOne).toHaveBeenCalledWith({ _id: "c1" });
+    expect(mockedSession.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it("scheduling a date never reports as completed", async () => {
-    mockedStudent.findById.mockResolvedValue({ _id: studentId } as any);
+  it("an older scheduled/cancelled record becomes present (updated in place, never duplicated)", async () => {
+    mockedSession.findOne.mockResolvedValue({ _id: "c1", status: "scheduled" } as any);
+    mockedSession.findOneAndUpdate.mockResolvedValue({ _id: "c1", status: "completed" } as any);
+
+    const res = await toggle({ student: studentId, date: pastDate });
+
+    expect(res.status).toBe(200);
+    expect(res.body.present).toBe(true);
+    expect(mockedSession.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("a double-tap race on the unique index is treated as already present", async () => {
     mockedSession.findOne.mockResolvedValue(null as any);
-    mockedSession.findOneAndUpdate.mockResolvedValue({
-      _id: "cs1",
-      student: studentId,
-      date: "2026-09-11",
-      status: "scheduled",
-    } as any);
+    mockedSession.findOneAndUpdate.mockRejectedValue(Object.assign(new Error("dup"), { code: 11000 }));
 
-    const res = await request(app)
-      .post("/api/classes/mark")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "2026-09-11", status: "scheduled" });
+    const res = await toggle({ student: studentId, date: pastDate });
 
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ present: true });
+  });
+
+  it("can't mark a future date", async () => {
+    const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const res = await toggle({ student: studentId, date: future });
+    expect(res.status).toBe(400);
+  });
+
+  it("can mark today", async () => {
+    mockedSession.findOne.mockResolvedValue(null as any);
+    mockedSession.findOneAndUpdate.mockResolvedValue({} as any);
+    const res = await toggle({ student: studentId, date: todayDhakaStr() });
     expect(res.status).toBe(201);
-    expect(res.body.status).toBe("scheduled");
+  });
+
+  it("404s for a student outside the teacher's scope", async () => {
+    mockedStudent.findOne.mockResolvedValue(null as any);
+    const res = await toggle({ student: studentId, date: pastDate });
+    expect(res.status).toBe(404);
+    expect(mockedStudent.findOne).toHaveBeenCalledWith({ _id: studentId, teacher: "teacher-1" });
+    expect(mockedSession.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("students can't mark attendance", async () => {
+    const res = await toggle({ student: studentId, date: pastDate }, student);
+    expect(res.status).toBe(403);
   });
 
   it("400s on a malformed date", async () => {
-    const res = await request(app)
-      .post("/api/classes/mark")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "not-a-date", status: "completed" });
+    const res = await toggle({ student: studentId, date: "15-01-2026" });
     expect(res.status).toBe(400);
   });
 });
 
-describe("POST /api/classes (direct create, back-compat path)", () => {
-  const studentId = "507f1f77bcf86cd799439011";
-
-  it("surfaces the DB's duplicate-key error as a friendly 409, not a 500", async () => {
-    mockedStudent.findById.mockResolvedValue({ _id: studentId } as any);
-    const dupError: any = new Error("duplicate key");
-    dupError.code = 11000;
-    mockedSession.create.mockRejectedValue(dupError);
-
-    const res = await request(app)
-      .post("/api/classes")
-      .set("Cookie", cookie)
-      .send({ student: studentId, date: "2026-09-10", status: "completed" });
-
-    expect(res.status).toBe(409);
-  });
-});
-
-describe("DELETE /api/classes/:id", () => {
-  it("404s when the record doesn't exist", async () => {
-    mockedSession.findByIdAndDelete.mockResolvedValue(null as any);
-    const res = await request(app).delete("/api/classes/507f1f77bcf86cd799439099").set("Cookie", cookie);
-    expect(res.status).toBe(404);
-  });
-
-  it("removes an existing record", async () => {
-    mockedSession.findByIdAndDelete.mockResolvedValue({ _id: "cs1" } as any);
-    const res = await request(app).delete("/api/classes/507f1f77bcf86cd799439099").set("Cookie", cookie);
+describe("GET /api/classes", () => {
+  it("a student can read their own attendance", async () => {
+    mockedSession.find.mockReturnValue(mockQuery([{ date: pastDate, status: "completed" }]));
+    const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", student);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(mockedStudent.findOne).toHaveBeenCalledWith({ _id: studentId, user: "student-user-1" });
   });
 
-  it("400s on a malformed id (never reaches the DB call)", async () => {
-    const res = await request(app).delete("/api/classes/not-an-id").set("Cookie", cookie);
-    expect(res.status).toBe(400);
-    expect(mockedSession.findByIdAndDelete).not.toHaveBeenCalled();
+  it("404s reading someone else's attendance", async () => {
+    mockedStudent.findOne.mockResolvedValue(null as any);
+    const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", student);
+    expect(res.status).toBe(404);
+    expect(mockedSession.find).not.toHaveBeenCalled();
+  });
+
+  it("without ?student, only the caller's students are included", async () => {
+    mockedStudent.find.mockReturnValue(mockQuery([{ _id: "s1" }, { _id: "s2" }]));
+    mockedSession.find.mockReturnValue(mockQuery([]));
+
+    await request(app).get("/api/classes").query({ month: 9, year: 2026 }).set("Cookie", teacher);
+
+    expect(mockedStudent.find).toHaveBeenCalledWith({ teacher: "teacher-1" });
+    expect(mockedSession.find).toHaveBeenCalledWith({
+      student: { $in: ["s1", "s2"] },
+      date: { $gte: "2026-09-01", $lte: "2026-09-30" },
+    });
   });
 });
