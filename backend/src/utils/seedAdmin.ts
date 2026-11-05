@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import bcrypt from "bcryptjs";
 import { connectDB } from "../config/db";
-import Admin from "../models/Admin";
+import User from "../models/User";
 
 async function run() {
   const { MONGODB_URI, ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } = process.env;
@@ -13,17 +13,18 @@ async function run() {
 
   await connectDB(MONGODB_URI);
 
-  const existing = await Admin.findOne({ email: ADMIN_EMAIL.toLowerCase() });
+  const existing = await User.findOne({ email: ADMIN_EMAIL.toLowerCase() });
   if (existing) {
-    console.log(`Admin already exists for ${ADMIN_EMAIL} — no changes made.`);
+    console.log(`A ${existing.role} account already exists for ${ADMIN_EMAIL} — no changes made.`);
     process.exit(0);
   }
 
   const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
-  await Admin.create({
+  await User.create({
     name: ADMIN_NAME || "Admin",
     email: ADMIN_EMAIL.toLowerCase(),
     passwordHash,
+    role: "admin",
   });
 
   console.log(`Admin account created for ${ADMIN_EMAIL}.`);

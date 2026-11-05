@@ -3,6 +3,7 @@ dotenv.config();
 
 import app from "./app";
 import { connectDB } from "./config/db";
+import { migrateLegacyAdmins } from "./utils/migrateLegacyAdmins";
 
 const PORT = Number(process.env.PORT) || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -13,10 +14,11 @@ if (!MONGODB_URI || !process.env.JWT_SECRET) {
 }
 
 connectDB(MONGODB_URI)
+  .then(migrateLegacyAdmins)
   .then(() => {
     app.listen(PORT, () => console.log(`[server] listening on port ${PORT}`));
   })
   .catch((err) => {
-    console.error("[server] failed to connect to MongoDB", err);
+    console.error("[server] failed to start", err);
     process.exit(1);
   });
