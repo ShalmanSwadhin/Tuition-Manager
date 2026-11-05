@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Phone, BookOpen, X } from "lucide-react";
+import { ArrowLeft, Pencil, Phone, BookOpen, X, Clock } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import MonthCalendar, { CalendarMark } from "../components/MonthCalendar";
 import DiaryList from "../components/DiaryList";
 import DiaryFormModal from "../components/DiaryFormModal";
-import StudentFormModal from "../components/StudentFormModal";
+import StudentFormModal, { WEEKDAYS } from "../components/StudentFormModal";
+import StudentFiles from "../components/StudentFiles";
+import ExamResults from "../components/ExamResults";
+import NoticeBoard from "../components/NoticeBoard";
 import { summarize } from "../utils/attendance";
 import { todayDhakaStr, formatDate, shiftMonth } from "../utils/date";
-import type { Student, ClassSession, ExamResult } from "../types";
+import type { Student, ClassSession } from "../types";
+
+// "17:30" -> "5:30 PM"
+function formatClassTime(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
 
 // One student's page. Teachers/admin reach it at /students/:id and can tap
 // days to mark attendance; a student sees their own at "/" (read-only
@@ -23,7 +32,6 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
   const [student, setStudent] = useState<Student | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [sessions, setSessions] = useState<ClassSession[]>([]);
-  const [exams, setExams] = useState<ExamResult[]>([]);
   const today = todayDhakaStr();
   const [ym, setYm] = useState({ year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) });
   const [editing, setEditing] = useState(false);
@@ -37,7 +45,6 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
       .get<Student>(`/students/${id}`)
       .then((res) => setStudent(res.data))
       .catch(() => setNotFound(true));
-    api.get<ExamResult[]>("/exams", { params: { student: id } }).then((res) => setExams(res.data)).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -89,6 +96,8 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
   const teacherName = typeof student.teacher === "object" ? student.teacher.name : undefined;
   const accountEmail = typeof student.user === "object" ? student.user.email : undefined;
   const isSelf = user.role === "student";
+  const classDays = WEEKDAYS.filter((w) => student.preferredDays?.includes(w.key)).map((w) => w.short);
+  const schedule = [classDays.join(", "), student.classTime ? formatClassTime(student.classTime) : ""].filter(Boolean).join(" · ");
 
   return (
     <div className="space-y-5">
@@ -125,6 +134,17 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
           </button>
         )}
       </div>
+
+      {schedule && (
+        <p className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
+          <Clock size={16} className="text-brand-600" />
+          <span>
+            Classes: <span className="font-semibold">{schedule}</span>
+          </span>
+        </p>
+      )}
+
+      {isSelf && <NoticeBoard limit={2} hideWhenEmpty />}
 
       <section className="card">
         <div className="mb-3 grid grid-cols-3 gap-2 text-center">
@@ -173,31 +193,17 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
         </section>
       )}
 
+      <StudentFiles studentId={student._id} canManage={canMark} />
+
       <DiaryList
         studentId={student._id}
         studentName={student.fullName}
+        guardianPhone={student.guardianPhone}
         refreshKey={diaryRefresh}
         title={isSelf ? "My diary" : "Diary"}
       />
 
-      {exams.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-base font-semibold text-slate-900">Exam results</h2>
-          <ul className="card divide-y divide-slate-100 p-0">
-            {exams.map((ex) => (
-              <li key={ex._id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <span>
-                  <span className="font-medium text-slate-800">{ex.examName}</span>
-                  <span className="text-slate-500"> · {ex.subject}</span>
-                </span>
-                <span className="font-semibold text-slate-900">
-                  {ex.obtainedMarks}/{ex.totalMarks}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <ExamResults studentId={student._id} canManage={canMark} />
 
       {justMarked && (
         <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-30 mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-lg md:bottom-6">

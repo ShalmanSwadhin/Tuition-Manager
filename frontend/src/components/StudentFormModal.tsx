@@ -2,7 +2,17 @@ import { useState } from "react";
 import api from "../api/client";
 import Sheet from "./Sheet";
 import { todayDhakaStr } from "../utils/date";
-import type { Student } from "../types";
+import type { Student, Weekday } from "../types";
+
+export const WEEKDAYS: { key: Weekday; short: string }[] = [
+  { key: "SUN", short: "Sun" },
+  { key: "MON", short: "Mon" },
+  { key: "TUE", short: "Tue" },
+  { key: "WED", short: "Wed" },
+  { key: "THU", short: "Thu" },
+  { key: "FRI", short: "Fri" },
+  { key: "SAT", short: "Sat" },
+];
 
 interface Props {
   student?: Student; // edit; omit to add a new (no-account) student
@@ -21,6 +31,8 @@ export default function StudentFormModal({ student, onClose, onSaved }: Props) {
     guardianPhone: student?.guardianPhone || "",
     notes: student?.notes || "",
     status: student?.status || "active",
+    preferredDays: student?.preferredDays || ([] as Weekday[]),
+    classTime: student?.classTime || "",
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +46,7 @@ export default function StudentFormModal({ student, onClose, onSaved }: Props) {
       ...form,
       monthlyClassTarget: Number(form.monthlyClassTarget),
       subjects: form.subjects.split(",").map((s) => s.trim()).filter(Boolean),
+      preferredDays: WEEKDAYS.map((w) => w.key).filter((k) => form.preferredDays.includes(k)),
     };
     try {
       const res = student
@@ -71,6 +84,32 @@ export default function StudentFormModal({ student, onClose, onSaved }: Props) {
               className="input"
             />
           </div>
+        </div>
+        <div>
+          <label className="label">Class days</label>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAYS.map(({ key, short }) => {
+              const on = form.preferredDays.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() =>
+                    set({ preferredDays: on ? form.preferredDays.filter((d) => d !== key) : [...form.preferredDays, key] })
+                  }
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                    on ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {short}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <label className="label">Class time</label>
+          <input type="time" value={form.classTime} onChange={(e) => set({ classTime: e.target.value })} className="input" />
         </div>
         <div>
           <label className="label">School</label>
