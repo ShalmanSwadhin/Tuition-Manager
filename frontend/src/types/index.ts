@@ -31,6 +31,7 @@ export interface Student {
   joiningDate: string;
   status: StudentStatus;
   color: string;
+  attendanceVisible?: boolean; // false = hidden from the student
   teacher?: string | { _id: string; name: string };
   user?: string | { _id: string; email: string };
 }

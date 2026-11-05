@@ -1,10 +1,50 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { LogOut, ChevronRight } from "lucide-react";
+import { LogOut, ChevronRight, Eye, EyeOff } from "lucide-react";
+import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import TeacherKeyCard from "../components/TeacherKeyCard";
 import { NAV } from "../components/Layout";
 
 const ROLE_LABEL = { admin: "Admin", teacher: "Teacher", student: "Student" } as const;
+
+// Sets every one of the teacher's students at once; each student's page
+// still has its own switch for exceptions.
+function AttendanceVisibilityCard() {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function apply(visible: boolean) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.patch("/students/attendance-visibility", { attendanceVisible: visible });
+      setMessage(visible ? "All your students can now see their attendance." : "Attendance is now hidden from all your students.");
+    } catch {
+      setMessage("Couldn't update. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <p className="font-semibold text-slate-900">Attendance in students' apps</p>
+      <p className="mt-0.5 text-sm text-slate-500">
+        Choose for all your students at once. You can still change one student from their page.
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button disabled={busy} onClick={() => apply(true)} className="btn-secondary">
+          <Eye size={16} /> Show to all
+        </button>
+        <button disabled={busy} onClick={() => apply(false)} className="btn-secondary">
+          <EyeOff size={16} /> Hide from all
+        </button>
+      </div>
+      {message && <p className="mt-2 text-sm text-emerald-700">{message}</p>}
+    </div>
+  );
+}
 
 export default function Account() {
   const { user, logout } = useAuth();
@@ -27,6 +67,8 @@ export default function Account() {
       </div>
 
       {user.role === "teacher" && <TeacherKeyCard allowRegenerate />}
+
+      {user.role === "teacher" && <AttendanceVisibilityCard />}
 
       {/* Pages that don't fit in the phone tab bar */}
       {NAV[user.role].some((i) => i.desktopOnly) && (

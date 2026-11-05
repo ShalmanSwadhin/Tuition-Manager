@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Phone, BookOpen, X, Clock } from "lucide-react";
+import { ArrowLeft, Pencil, Phone, BookOpen, X, Clock, EyeOff } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import MonthCalendar, { CalendarMark } from "../components/MonthCalendar";
@@ -47,12 +47,26 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
       .catch(() => setNotFound(true));
   }, [id]);
 
+  // A student whose teacher hid attendance can't load it (the API refuses).
+  const attendanceHidden = user?.role === "student" && student?.attendanceVisible === false;
+
   useEffect(() => {
-    if (!id) return;
+    if (!id || !student || attendanceHidden) return;
     api
       .get<ClassSession[]>("/classes", { params: { student: id, month: ym.month, year: ym.year } })
       .then((res) => setSessions(res.data));
-  }, [id, ym]);
+  }, [id, ym, student?._id, attendanceHidden]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function setAttendanceVisible(visible: boolean) {
+    if (!student) return;
+    setStudent({ ...student, attendanceVisible: visible });
+    try {
+      await api.patch(`/students/${student._id}`, { attendanceVisible: visible });
+    } catch {
+      setStudent({ ...student });
+      alert("Couldn't change who can see attendance");
+    }
+  }
 
   const marks = useMemo(() => {
     const m: Record<string, CalendarMark> = {};
@@ -146,7 +160,30 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
 
       {isSelf && <NoticeBoard limit={2} hideWhenEmpty />}
 
+      {attendanceHidden ? (
+        <p className="card flex items-center gap-2 text-sm text-slate-500">
+          <EyeOff size={16} /> Your teacher has hidden the attendance calendar.
+        </p>
+      ) : (
       <section className="card">
+        {canMark && (
+          <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-slate-800">Student can see attendance</span>
+              <span className="block text-xs text-slate-500">
+                {student.attendanceVisible === false ? "Hidden from the student's app" : "Shown in the student's app"}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={student.attendanceVisible !== false}
+              onChange={(e) => setAttendanceVisible(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span className="relative h-7 w-12 shrink-0 rounded-full bg-slate-300 transition peer-checked:bg-emerald-500 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500 after:absolute after:left-0.5 after:top-0.5 after:h-6 after:w-6 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5" />
+          </label>
+        )}
         <div className="mb-3 grid grid-cols-3 gap-2 text-center">
           <div className="rounded-xl bg-emerald-50 py-2">
             <p className="text-xl font-bold text-emerald-700">{completed}</p>
@@ -178,6 +215,7 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
           {canMark ? "Tap a day to mark present. Tap a green day to undo." : "Green days are classes you attended."}
         </p>
       </section>
+      )}
 
       {canMark && (student.guardianName || student.guardianPhone) && (
         <section className="card flex items-center justify-between">

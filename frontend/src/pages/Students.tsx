@@ -106,6 +106,7 @@ export default function Students() {
                     {s.classGrade} · {s.monthlyClassTarget} classes/month
                     {isAdmin && typeof s.teacher === "object" ? ` · ${s.teacher.name}` : ""}
                     {!s.user ? " · no app account" : ""}
+                    {s.attendanceVisible === false ? " · attendance hidden" : ""}
                   </span>
                 </span>
                 <ChevronRight size={18} className="text-slate-300" />
