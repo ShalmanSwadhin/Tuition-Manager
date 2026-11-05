@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, History, Search, CheckCircle2, Circle } from "lucide-react";
+import { Plus, Pencil, Trash2, History, Search, CheckCircle2, Circle, MessageCircle, ClipboardList } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import DiaryFormModal from "./DiaryFormModal";
 import { formatDate, formatDateTime } from "../utils/date";
+import { diaryMessage, whatsappUrl } from "../utils/whatsapp";
 import type { DiaryEntry, DiaryContent, DiaryVersion } from "../types";
 
 interface Props {
   studentId?: string; // one student's diary; omit for every diary you can see
   studentName?: string;
+  guardianPhone?: string; // for "send to guardian on WhatsApp"
   students?: { _id: string; fullName: string }[]; // for the "new entry" picker when studentId is omitted
   refreshKey?: number;
   title?: string;
@@ -46,7 +48,7 @@ function EditHistory({ history }: { history: DiaryVersion[] }) {
   );
 }
 
-export default function DiaryList({ studentId, studentName, students, refreshKey = 0, title = "Diary" }: Props) {
+export default function DiaryList({ studentId, studentName, guardianPhone, students, refreshKey = 0, title = "Diary" }: Props) {
   const { user } = useAuth();
   const [entries, setEntries] = useState<DiaryEntry[] | null>(null);
   const [subject, setSubject] = useState("");
@@ -79,6 +81,16 @@ export default function DiaryList({ studentId, studentName, students, refreshKey
     load();
   }
 
+  function sendToGuardian(d: DiaryEntry) {
+    const student = typeof d.student === "object" ? d.student : null;
+    const phone = guardianPhone || student?.guardianPhone;
+    const name = studentName || student?.fullName || "Student";
+    if (!phone && !confirm("No guardian phone is saved for this student. Open WhatsApp and choose the chat yourself?")) return;
+    window.open(whatsappUrl(diaryMessage(d, name, user!.name), phone), "_blank", "noopener");
+  }
+
+  const pendingHomework = studentId ? (entries ?? []).filter((d) => d.homework && d.homeworkStatus === "pending") : [];
+
   return (
     <section>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -87,6 +99,32 @@ export default function DiaryList({ studentId, studentName, students, refreshKey
           <Plus size={18} /> New entry
         </button>
       </div>
+
+      {pendingHomework.length > 0 && (
+        <div className="card mb-3 border-sky-200 bg-sky-50">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-sky-900">
+            <ClipboardList size={16} /> Homework to do ({pendingHomework.length})
+          </p>
+          <ul className="space-y-2">
+            {pendingHomework.map((d) => (
+              <li key={d._id} className="flex items-start gap-2">
+                <button
+                  onClick={() => toggleHomework(d)}
+                  className="mt-0.5 shrink-0 rounded-full text-sky-700"
+                  aria-label={`Mark ${d.subject} homework done`}
+                >
+                  <Circle size={20} />
+                </button>
+                <span className="min-w-0 text-sm text-slate-800">
+                  <span className="font-medium">{d.subject}</span>
+                  <span className="text-slate-500"> · {formatDate(d.date, { day: "numeric", month: "short" })}</span>
+                  <span className="block whitespace-pre-wrap text-slate-700">{d.homework}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="relative mb-3">
         <Search size={16} className="absolute left-3 top-3.5 text-slate-400" />
@@ -136,7 +174,7 @@ export default function DiaryList({ studentId, studentName, students, refreshKey
 
                 {openHistory === d._id && <EditHistory history={d.history} />}
 
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
                   {d.homework ? (
                     <button
                       onClick={() => toggleHomework(d)}
@@ -152,6 +190,15 @@ export default function DiaryList({ studentId, studentName, students, refreshKey
                   )}
                   <div className="flex items-center gap-1">
                     <span className="mr-1 text-xs text-slate-400">by {mine ? "you" : d.author?.name || "—"}</span>
+                    {!isStudent && (
+                      <button
+                        onClick={() => sendToGuardian(d)}
+                        className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                        title="Send to guardian on WhatsApp"
+                      >
+                        <MessageCircle size={14} /> WhatsApp
+                      </button>
+                    )}
                     {canEdit(d) && (
                       <button onClick={() => setEditing(d)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100" aria-label="Edit">
                         <Pencil size={16} />
