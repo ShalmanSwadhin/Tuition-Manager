@@ -34,6 +34,12 @@ services required.
   index in MongoDB.
 - **Monthly summary** (present / target / remaining / progress) above
   each student's calendar.
+- **Hide attendance from a student**: the teacher's switch above the
+  calendar ("Student can see attendance") decides whether that student's
+  app shows the calendar and monthly counts. **Account → Hide from all /
+  Show to all** sets it for every one of the teacher's students at once.
+  When hidden, the API itself refuses the student's attendance request;
+  the teacher and admin still see everything.
 - **Shared diary** with subject, topic, what was covered, homework, next
   class prep and notes. Students write their own entries; teachers write
   from the student's page or the Diary tab. Whenever an entry's content
@@ -107,7 +113,7 @@ then as a student with that teacher's key. You can also run each side on its own
 ### 3. Running the tests
 
 ```bash
-cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 116 tests
+cd backend && npm run test:all   # node:test (pure logic) + Jest/Supertest (HTTP-level, mocked DB) — 125 tests
 cd frontend && npm test          # vitest — attendance math, WhatsApp number/message formatting
 ```
 
