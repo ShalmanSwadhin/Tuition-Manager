@@ -59,6 +59,18 @@ describe("POST /api/auth/login", () => {
     expect(res.headers["set-cookie"]?.[0]).toMatch(/token=.*HttpOnly/i);
   });
 
+  it("keeps the login for 90 days: cookie and token expire together", async () => {
+    mockedUser.findOne.mockResolvedValue({ id: "t1", name: "T", email: "me@example.com", role: "teacher", passwordHash } as any);
+
+    const res = await request(app).post("/api/auth/login").send({ email: "me@example.com", password: plainPassword });
+
+    const cookie = res.headers["set-cookie"][0];
+    expect(cookie).toMatch(/Max-Age=7776000/); // 90 * 24 * 60 * 60 seconds
+    const token = /token=([^;]+)/.exec(cookie)![1];
+    const { iat, exp } = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(exp - iat).toBe(7776000);
+  });
+
   it("rejects a malformed request body (zod validation)", async () => {
     const res = await request(app).post("/api/auth/login").send({ email: "not-an-email" });
     expect(res.status).toBe(400);

@@ -55,9 +55,13 @@ const registerSchema = z.discriminatedUnion("role", [
 
 const STUDENT_COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
 
+// How long a login lasts. The token and the cookie carrying it share this,
+// so neither can run out before the other.
+const SESSION_DAYS = Number(process.env.SESSION_DAYS) || 90;
+
 function signToken(userId: string, role: Role): string {
   return jwt.sign({ sub: userId, role }, process.env.JWT_SECRET as string, {
-    expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any,
+    expiresIn: `${SESSION_DAYS}d`,
   });
 }
 
@@ -65,7 +69,7 @@ const cookieOpts = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: (process.env.NODE_ENV === "production" ? "none" : "lax") as "none" | "lax",
-  maxAge: 7 * 24 * 60 * 60 * 1000,
+  maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
 };
 
 // What the frontend gets to know about the signed-in user.

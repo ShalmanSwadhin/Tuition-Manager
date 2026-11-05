@@ -167,7 +167,7 @@ Either **New → Blueprint** and pick the repo (it reads `render.yaml`), or
 
 Environment variables: `NODE_ENV=production`, `MONGODB_URI` (Atlas),
 `JWT_SECRET` (a long random string; the Blueprint generates one),
-`JWT_EXPIRES_IN=7d`, `CORS_ORIGIN` (your Vercel URL, e.g.
+`SESSION_DAYS=90` (how long a login lasts; optional, defaults to 90), `CORS_ORIGIN` (your Vercel URL, e.g.
 `https://tuition-manager.vercel.app`; comma-separate several).
 
 `--include=dev` is required: with `NODE_ENV=production`, a plain
