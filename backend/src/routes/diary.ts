@@ -54,7 +54,7 @@ router.get("/", async (req: AuthedRequest, res) => {
   }
   if (date) filter.date = date;
   if (subject) filter.subject = { $regex: escapeRegex(subject), $options: "i" };
-  const entries = await DiaryEntry.find(filter).sort({ date: -1, createdAt: -1 }).populate("student", "fullName");
+  const entries = await DiaryEntry.find(filter).sort({ date: -1, createdAt: -1 }).populate("student", "fullName guardianPhone");
   res.json(entries);
 });
 

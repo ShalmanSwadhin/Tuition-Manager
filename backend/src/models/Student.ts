@@ -14,6 +14,7 @@ export interface IStudent extends Document {
   monthlyClassTarget: number;
   defaultClassDurationMinutes?: number;
   preferredDays?: string[]; // e.g. ["MON","WED","FRI"]
+  classTime?: string; // "HH:MM" (24h, Dhaka time)
   notes?: string;
   joiningDate: string; // YYYY-MM-DD
   status: StudentStatus;
@@ -37,6 +38,7 @@ const studentSchema = new Schema<IStudent>(
     monthlyClassTarget: { type: Number, required: true, min: 1, default: 12 },
     defaultClassDurationMinutes: { type: Number },
     preferredDays: { type: [String], default: [] },
+    classTime: { type: String, trim: true },
     notes: { type: String },
     joiningDate: { type: String, required: true },
     status: { type: String, enum: ["active", "paused", "archived"], default: "active", index: true },
