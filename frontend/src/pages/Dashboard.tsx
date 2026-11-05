@@ -1,154 +1,164 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Users, CheckCircle2, Clock, Target, AlertCircle, BookOpen } from "lucide-react";
+import { Check, CalendarDays, ChevronRight, UserPlus } from "lucide-react";
 import api from "../api/client";
-import QuickDiaryModal from "../components/QuickDiaryModal";
+import { useAuth } from "../context/AuthContext";
+import TeacherKeyCard from "../components/TeacherKeyCard";
+import { formatDate } from "../utils/date";
 import { summarize } from "../utils/attendance";
-import type { DashboardSummary } from "../types";
+import type { DashboardSummary, StudentCard } from "../types";
 
-function SummaryCard({ label, value, icon: Icon }: { label: string; value: number | string; icon: any }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">{label}</p>
-        <Icon size={18} className="text-brand-500" />
-      </div>
-      <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
+    <div className="card p-3">
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="text-xs font-medium text-slate-500">{label}</p>
     </div>
   );
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showDiaryModal, setShowDiaryModal] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   function load() {
     api
       .get<DashboardSummary>("/dashboard/summary")
       .then((res) => setData(res.data))
-      .catch(() => setError("Couldn't load the dashboard. Try refreshing."));
+      .catch(() => setError("Couldn't load your dashboard. Try refreshing the page."));
   }
-
   useEffect(load, []);
 
+  async function togglePresent(card: StudentCard) {
+    if (!data) return;
+    if (card.presentToday && !confirm(`Remove today's present mark for ${card.fullName}?`)) return;
+    setBusy(card.id);
+    try {
+      const res = await api.post<{ present: boolean }>("/classes/toggle", { student: card.id, date: data.today });
+      const delta = res.data.present === card.presentToday ? 0 : res.data.present ? 1 : -1;
+      setData({
+        ...data,
+        totals: {
+          ...data.totals,
+          presentToday: data.totals.presentToday + delta,
+          completedThisMonth: data.totals.completedThisMonth + delta,
+        },
+        studentCards: data.studentCards.map((c) =>
+          c.id === card.id ? { ...c, presentToday: res.data.present, completed: c.completed + delta } : c
+        ),
+      });
+    } catch (err: any) {
+      alert(err?.response?.data?.error || "Couldn't update attendance");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!data) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (!data || !user) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  const isAdmin = user.role === "admin";
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold text-slate-900">Dashboard</h1>
-        <button
-          onClick={() => setShowDiaryModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
-          <BookOpen size={16} /> Quick diary entry
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <SummaryCard label="Active students" value={data.totals.activeStudents} icon={Users} />
-        <SummaryCard label="Completed this month" value={data.totals.completedThisMonth} icon={CheckCircle2} />
-        <SummaryCard label="Remaining this month" value={data.totals.remainingThisMonth} icon={Clock} />
-        <SummaryCard label="At monthly target" value={data.totals.studentsAtTarget} icon={Target} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Today's schedule</h2>
-          {data.todaysSchedule.length === 0 ? (
-            <p className="text-sm text-slate-400">No classes recorded for today yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {data.todaysSchedule.map((s) => {
-                const student = typeof s.student === "object" ? s.student : null;
-                return (
-                  <li key={s._id} className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={{ background: student?.color || "#6366f1" }} />
-                      {student?.fullName || "Student"}
-                    </span>
-                    <span className="capitalize text-slate-400">{s.status}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Recently updated diaries</h2>
-          {data.recentDiaryEntries.length === 0 ? (
-            <p className="text-sm text-slate-400">No diary entries yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {data.recentDiaryEntries.map((d) => {
-                const student = typeof d.student === "object" ? d.student : null;
-                return (
-                  <li key={d._id} className="text-sm">
-                    <span className="font-medium text-slate-700">{student?.fullName}</span>{" "}
-                    <span className="text-slate-400">— {d.subject} · {d.date}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      {data.approachingLimit.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800">
-            <AlertCircle size={16} /> Approaching monthly target
-          </h2>
-          <ul className="space-y-1 text-sm text-amber-800">
-            {data.approachingLimit.map((s) => (
-              <li key={s.id}>
-                {s.fullName}: {s.completed}/{s.target}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
+    <div className="space-y-5">
       <div>
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Students</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {data.studentCards.map((s) => {
-            const pct = Math.min(summarize(s.monthlyClassTarget, s.completed).progressPercent, 100);
-            return (
-              <Link
-                key={s.id}
-                to={`/students/${s.id}`}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
-                  <p className="truncate text-sm font-medium text-slate-900">{s.fullName}</p>
-                </div>
-                <p className="mb-2 text-xs text-slate-400">{s.classGrade}</p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full bg-brand-500" style={{ width: `${pct}%` }} />
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  {s.completed}/{s.monthlyClassTarget} classes
-                </p>
-              </Link>
-            );
-          })}
-        </div>
+        <p className="text-sm text-slate-500">{formatDate(data.today, { weekday: "long", day: "numeric", month: "long" })}</p>
+        <h1 className="page-title">Hi, {user.name.split(" ")[0]}</h1>
       </div>
 
-      {showDiaryModal && (
-        <QuickDiaryModal
-          students={data.studentCards.map((s) => ({ _id: s.id, fullName: s.fullName }))}
-          onClose={() => setShowDiaryModal(false)}
-          onSaved={() => {
-            setShowDiaryModal(false);
-            load();
-          }}
-        />
+      {user.role === "teacher" && <TeacherKeyCard />}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {isAdmin && <Stat label="Teachers" value={data.totals.teachers ?? 0} />}
+        <Stat label="Active students" value={data.totals.activeStudents} />
+        <Stat label="Present today" value={data.totals.presentToday} />
+        <Stat label="Classes this month" value={data.totals.completedThisMonth} />
+        {!isAdmin && <Stat label="Reached target" value={data.totals.studentsAtTarget} />}
+      </div>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Today's attendance</h2>
+          <Link to="/calendar" className="flex items-center gap-1 text-sm font-medium text-brand-600">
+            <CalendarDays size={16} /> Calendar
+          </Link>
+        </div>
+
+        {data.studentCards.length === 0 ? (
+          <div className="card text-center">
+            <UserPlus className="mx-auto mb-2 text-slate-400" />
+            <p className="text-sm text-slate-600">
+              {isAdmin ? "No students yet." : "No students yet. Share your teacher key above so students can join."}
+            </p>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {data.studentCards.map((c) => {
+              const pct = Math.min(summarize(c.monthlyClassTarget, c.completed).progressPercent, 100);
+              return (
+                <li key={c.id} className="card flex items-center gap-3 p-3">
+                  <Link to={`/students/${c.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                      style={{ background: c.color }}
+                    >
+                      {c.fullName.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-slate-900">{c.fullName}</span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {c.completed}/{c.monthlyClassTarget} this month{isAdmin && c.teacherName ? ` · ${c.teacherName}` : ""}
+                      </span>
+                      <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                        <span className="block h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                      </span>
+                    </span>
+                  </Link>
+                  <button
+                    onClick={() => togglePresent(c)}
+                    disabled={busy === c.id}
+                    className={`btn shrink-0 px-3 py-2 ${
+                      c.presentToday ? "bg-emerald-500 text-white" : "border border-slate-300 bg-white text-slate-700"
+                    }`}
+                  >
+                    {c.presentToday ? <Check size={16} strokeWidth={3} /> : null}
+                    {c.presentToday ? "Present" : "Mark"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {data.recentDiaryEntries.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-base font-semibold text-slate-900">Recent diary activity</h2>
+          <ul className="card divide-y divide-slate-100 p-0">
+            {data.recentDiaryEntries.map((d) => {
+              const student = typeof d.student === "object" ? d.student : null;
+              return (
+                <li key={d._id}>
+                  <Link to={student ? `/students/${student._id}` : "/diary"} className="flex items-center gap-3 px-4 py-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">
+                        {student?.fullName} · {d.subject}
+                      </span>
+                      <span className="block text-xs text-slate-500">
+                        {formatDate(d.date)}
+                        {d.author?.role === "student" ? " · written by student" : ""}
+                        {d.history?.length ? " · edited" : ""}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} className="text-slate-300" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </div>
   );

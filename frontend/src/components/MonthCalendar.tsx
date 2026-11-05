@@ -1,63 +1,26 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { CSSProperties } from "react";
+import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { monthLabel } from "../utils/date";
 
-export interface CalendarDay {
-  dateStr: string;
-  status?: "completed" | "scheduled" | "cancelled";
-  color?: string;
-  label?: string;
+export interface CalendarMark {
+  color?: string; // fill color; defaults to green
+  count?: number; // >1 shows a small badge (global calendar: several students that day)
 }
 
 interface Props {
   year: number;
   month: number; // 1-12
   todayStr: string;
-  marks: Record<string, CalendarDay>; // keyed by YYYY-MM-DD
+  marks: Record<string, CalendarMark>; // keyed by YYYY-MM-DD; a key present = present that day
   onPrevMonth: () => void;
   onNextMonth: () => void;
-  onDayClick: (dateStr: string) => void;
-  // "status": subtle green/blue/grey by status — used for a single student's
-  // own calendar, where there's nothing to tell apart by color.
-  // "student": the existing per-student color-coded look, used on the
-  // global calendar where distinguishing students matters more than status.
-  colorMode?: "status" | "student";
-  showLegend?: boolean;
+  // When set, past and today's cells are tappable; future cells never are.
+  onDayClick?: (dateStr: string) => void;
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-function Legend() {
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-      <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Completed
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-blue-500" /> Scheduled
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full bg-slate-400" /> Cancelled
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-2.5 rounded-full ring-2 ring-brand-500" /> Today
-      </span>
-    </div>
-  );
-}
-
-export default function MonthCalendar({
-  year,
-  month,
-  todayStr,
-  marks,
-  onPrevMonth,
-  onNextMonth,
-  onDayClick,
-  colorMode = "student",
-  showLegend = false,
-}: Props) {
-  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
-  const startWeekday = firstOfMonth.getUTCDay();
+export default function MonthCalendar({ year, month, todayStr, marks, onPrevMonth, onNextMonth, onDayClick }: Props) {
+  const startWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
   const cells: (string | null)[] = [];
@@ -66,84 +29,57 @@ export default function MonthCalendar({
     cells.push(`${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
   }
 
-  const monthLabel = firstOfMonth.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div>
       <div className="mb-3 flex items-center justify-between">
-        <button onClick={onPrevMonth} className="rounded p-1 hover:bg-slate-100">
-          <ChevronLeft size={18} />
+        <button onClick={onPrevMonth} className="rounded-full p-2 hover:bg-slate-100" aria-label="Previous month">
+          <ChevronLeft size={20} />
         </button>
-        <p className="text-sm font-semibold text-slate-900">{monthLabel}</p>
-        <button onClick={onNextMonth} className="rounded p-1 hover:bg-slate-100">
-          <ChevronRight size={18} />
+        <p className="text-sm font-semibold text-slate-900">{monthLabel(year, month)}</p>
+        <button onClick={onNextMonth} className="rounded-full p-2 hover:bg-slate-100" aria-label="Next month">
+          <ChevronRight size={20} />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-xs text-slate-400">
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="py-1">
+      <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-medium text-slate-400">
+        {WEEKDAYS.map((w, i) => (
+          <div key={i} className="py-1">
             {w}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1.5">
         {cells.map((dateStr, i) => {
           if (!dateStr) return <div key={i} />;
           const mark = marks[dateStr];
           const isToday = dateStr === todayStr;
           const isFuture = dateStr > todayStr;
-
-          let bg = "bg-white hover:bg-slate-50";
-          let text = "text-slate-700";
-          let style: CSSProperties | undefined;
-
-          if (colorMode === "status") {
-            // Subtle, status-only indicators for a single student's calendar.
-            if (mark?.status === "completed") {
-              bg = "bg-emerald-50 hover:bg-emerald-100 ring-1 ring-inset ring-emerald-200";
-              text = "text-emerald-700";
-            } else if (mark?.status === "scheduled") {
-              bg = "bg-blue-50 hover:bg-blue-100 ring-1 ring-inset ring-blue-200";
-              text = "text-blue-700";
-            } else if (mark?.status === "cancelled") {
-              bg = "bg-slate-100";
-              text = "text-slate-400 line-through";
-            } else if (isFuture) {
-              text = "text-slate-400";
-            }
-          } else {
-            // Per-student color coding for the global calendar.
-            if (mark?.status === "completed") {
-              bg = "text-white";
-              text = "text-white";
-              style = { background: mark.color || "#6366f1" };
-            } else if (mark?.status === "scheduled") {
-              bg = "bg-blue-50 hover:bg-blue-100";
-              text = "text-blue-700";
-            } else if (mark?.status === "cancelled") {
-              bg = "bg-slate-100";
-              text = "text-slate-400 line-through";
-            } else if (isFuture) {
-              text = "text-slate-400";
-            }
-          }
+          const clickable = Boolean(onDayClick) && !isFuture;
+          const day = Number(dateStr.slice(8, 10));
 
           return (
             <button
               key={dateStr}
-              onClick={() => onDayClick(dateStr)}
-              style={style}
-              className={`relative aspect-square rounded-lg text-xs font-medium ${bg} ${text} ${
-                isToday ? "ring-2 ring-brand-500" : ""
-              }`}
-              title={mark?.label}
+              disabled={!clickable}
+              onClick={() => onDayClick?.(dateStr)}
+              style={mark ? { background: mark.color || "#10b981" } : undefined}
+              aria-label={`${dateStr}${mark ? ", present" : ""}`}
+              className={`relative flex aspect-square flex-col items-center justify-center rounded-xl text-sm font-semibold transition ${
+                mark
+                  ? "text-white shadow-sm"
+                  : isFuture
+                    ? "text-slate-300"
+                    : clickable
+                      ? "bg-slate-50 text-slate-700 active:bg-slate-200"
+                      : "bg-slate-50 text-slate-600"
+              } ${isToday ? "ring-2 ring-brand-500 ring-offset-1" : ""} ${clickable ? "active:scale-95" : ""}`}
             >
-              {Number(dateStr.slice(8, 10))}
+              {day}
+              {mark && (mark.count ?? 1) <= 1 && <Check size={12} strokeWidth={3} className="opacity-90" />}
+              {mark && (mark.count ?? 1) > 1 && <span className="text-[10px] font-bold leading-none">×{mark.count}</span>}
             </button>
           );
         })}
       </div>
-      {showLegend && <Legend />}
     </div>
   );
 }
