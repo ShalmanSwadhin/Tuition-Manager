@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Phone, BookOpen, X, Clock, EyeOff } from "lucide-react";
+import { ArrowLeft, Pencil, Phone, BookOpen, X, Clock } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import MonthCalendar, { CalendarMark } from "../components/MonthCalendar";
@@ -160,11 +160,7 @@ export default function StudentProfile({ selfId }: { selfId?: string }) {
 
       {isSelf && <NoticeBoard limit={2} hideWhenEmpty />}
 
-      {attendanceHidden ? (
-        <p className="card flex items-center gap-2 text-sm text-slate-500">
-          <EyeOff size={16} /> Your teacher has hidden the attendance calendar.
-        </p>
-      ) : (
+      {!attendanceHidden && (
       <section className="card">
         {canMark && (
           <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
