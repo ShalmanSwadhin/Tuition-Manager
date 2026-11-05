@@ -16,6 +16,7 @@ import examRoutes from "./routes/exams";
 import reminderRoutes from "./routes/reminders";
 import dashboardRoutes from "./routes/dashboard";
 import reportRoutes from "./routes/reports";
+import adminRoutes from "./routes/admin";
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use("/api/exams", examRoutes);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/admin", adminRoutes);
 
 // 404 for unmatched API routes
 app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));

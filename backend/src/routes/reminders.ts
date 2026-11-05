@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import Reminder from "../models/Reminder";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole } from "../middleware/auth";
 import { validateBody, isValidObjectId } from "../middleware/validate";
 import { isValidDateStr } from "../utils/dateUtils";
 
 const router = Router();
-router.use(requireAuth);
+// Reminders have no owner field yet, so they stay admin-only rather than
+// being shared across every teacher.
+router.use(requireAuth, requireRole("admin"));
 
 const reminderSchema = z.object({
   student: z.string().refine(isValidObjectId, "Invalid student id").optional(),

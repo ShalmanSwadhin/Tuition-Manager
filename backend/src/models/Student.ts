@@ -18,6 +18,8 @@ export interface IStudent extends Document {
   joiningDate: string; // YYYY-MM-DD
   status: StudentStatus;
   color: string; // hex, assigned for global calendar
+  teacher: Types.ObjectId; // the teacher (User) this student belongs to
+  user?: Types.ObjectId; // the student's own login (User), if they signed up
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,13 +34,15 @@ const studentSchema = new Schema<IStudent>(
     guardianName: { type: String, trim: true },
     guardianPhone: { type: String, trim: true },
     address: { type: String, trim: true },
-    monthlyClassTarget: { type: Number, required: true, min: 1 },
+    monthlyClassTarget: { type: Number, required: true, min: 1, default: 12 },
     defaultClassDurationMinutes: { type: Number },
     preferredDays: { type: [String], default: [] },
     notes: { type: String },
     joiningDate: { type: String, required: true },
     status: { type: String, enum: ["active", "paused", "archived"], default: "active", index: true },
     color: { type: String, default: "#6366f1" },
+    teacher: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    user: { type: Schema.Types.ObjectId, ref: "User", unique: true, sparse: true },
   },
   { timestamps: true }
 );

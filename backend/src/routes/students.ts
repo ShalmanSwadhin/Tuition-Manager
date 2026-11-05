@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import Student from "../models/Student";
-import ClassSession from "../models/ClassSession";
 import DiaryEntry from "../models/DiaryEntry";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireRole, AuthedRequest } from "../middleware/auth";
 import { validateBody, isValidObjectId } from "../middleware/validate";
+import { studentScope } from "../utils/access";
+import { escapeRegex } from "../utils/escapeRegex";
 
 const router = Router();
 router.use(requireAuth);
@@ -29,55 +30,66 @@ const studentSchema = z.object({
 
 const updateSchema = studentSchema.partial();
 
-// GET /api/students?status=active&search=foo
-router.get("/", async (req, res) => {
-  const { status, search } = req.query as { status?: string; search?: string };
-  const filter: Record<string, unknown> = {};
+// GET /api/students?status=active&search=foo&teacher=id (teacher filter: admin only)
+router.get("/", async (req: AuthedRequest, res) => {
+  const { status, search, teacher } = req.query as { status?: string; search?: string; teacher?: string };
+  const filter: Record<string, unknown> = { ...studentScope(req.user!) };
   if (status) filter.status = status;
-  if (search) filter.fullName = { $regex: search, $options: "i" };
-  const students = await Student.find(filter).sort({ fullName: 1 });
+  if (search) filter.fullName = { $regex: escapeRegex(search), $options: "i" };
+  if (teacher && req.user!.role === "admin") {
+    if (!isValidObjectId(teacher)) return res.status(400).json({ error: "Invalid teacher id" });
+    filter.teacher = teacher;
+  }
+  const students = await Student.find(filter).sort({ fullName: 1 }).populate("teacher", "name");
   res.json(students);
 });
 
-router.post("/", validateBody(studentSchema), async (req, res) => {
-  const student = await Student.create(req.body);
+// Teachers can add a student who has no app account (e.g. no phone); they
+// show up exactly like students who signed up with the teacher's key.
+router.post("/", requireRole("teacher"), validateBody(studentSchema), async (req: AuthedRequest, res) => {
+  const student = await Student.create({ ...req.body, teacher: req.user!.id });
   res.status(201).json(student);
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req: AuthedRequest, res) => {
   if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid id" });
-  const student = await Student.findById(req.params.id);
+  const student = await Student.findOne({ _id: req.params.id, ...studentScope(req.user!) })
+    .populate("teacher", "name")
+    .populate("user", "email");
   if (!student) return res.status(404).json({ error: "Student not found" });
   res.json(student);
 });
 
-router.patch("/:id", validateBody(updateSchema), async (req, res) => {
+router.patch("/:id", requireRole("admin", "teacher"), validateBody(updateSchema), async (req: AuthedRequest, res) => {
   if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid id" });
-  const student = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+  const student = await Student.findOneAndUpdate({ _id: req.params.id, ...studentScope(req.user!) }, req.body, {
+    new: true,
+    runValidators: true,
+  });
   if (!student) return res.status(404).json({ error: "Student not found" });
   res.json(student);
 });
 
 // Prefer archiving over hard delete; historical records are preserved either way.
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireRole("admin", "teacher"), async (req: AuthedRequest, res) => {
   if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid id" });
-  const { hard } = req.query;
-  if (hard === "true") {
-    const student = await Student.findByIdAndDelete(req.params.id);
+  const scoped = { _id: req.params.id, ...studentScope(req.user!) };
+  if (req.query.hard === "true") {
+    const student = await Student.findOneAndDelete(scoped);
     if (!student) return res.status(404).json({ error: "Student not found" });
     // Historical class/diary/exam records are intentionally left in place
     // even on a hard delete of the student document, per the no-data-loss rule.
     return res.json({ ok: true, deleted: true });
   }
-  const student = await Student.findByIdAndUpdate(req.params.id, { status: "archived" }, { new: true });
+  const student = await Student.findOneAndUpdate(scoped, { status: "archived" }, { new: true });
   if (!student) return res.status(404).json({ error: "Student not found" });
   res.json(student);
 });
 
-// Convenience: latest diary entry + this-month class summary for the profile page
-router.get("/:id/summary", async (req, res) => {
+// Convenience: latest diary entry for the profile page
+router.get("/:id/summary", async (req: AuthedRequest, res) => {
   if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: "Invalid id" });
-  const student = await Student.findById(req.params.id);
+  const student = await Student.findOne({ _id: req.params.id, ...studentScope(req.user!) });
   if (!student) return res.status(404).json({ error: "Student not found" });
 
   const latestDiary = await DiaryEntry.findOne({ student: student._id }).sort({ date: -1, createdAt: -1 });
