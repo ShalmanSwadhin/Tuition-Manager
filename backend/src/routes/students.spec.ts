@@ -94,6 +94,34 @@ describe("creating students", () => {
   });
 });
 
+describe("attendance visibility", () => {
+  it("a teacher hides attendance for one student via PATCH", async () => {
+    mockedStudent.findOneAndUpdate.mockResolvedValue({ _id: id, attendanceVisible: false } as any);
+    const res = await request(app).patch(`/api/students/${id}`).set("Cookie", teacher).send({ attendanceVisible: false });
+    expect(res.status).toBe(200);
+    expect(mockedStudent.findOneAndUpdate).toHaveBeenCalledWith({ _id: id, teacher: "teacher-1" }, { attendanceVisible: false }, expect.anything());
+  });
+
+  it("a teacher sets it for all of their own students at once", async () => {
+    mockedStudent.updateMany.mockResolvedValue({ modifiedCount: 7 } as any);
+    const res = await request(app).patch("/api/students/attendance-visibility").set("Cookie", teacher).send({ attendanceVisible: false });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ updated: 7 });
+    expect(mockedStudent.updateMany).toHaveBeenCalledWith({ teacher: "teacher-1" }, { attendanceVisible: false });
+  });
+
+  it("students can't change visibility", async () => {
+    const res = await request(app).patch("/api/students/attendance-visibility").set("Cookie", student).send({ attendanceVisible: true });
+    expect(res.status).toBe(403);
+    expect(mockedStudent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("requires a boolean", async () => {
+    const res = await request(app).patch("/api/students/attendance-visibility").set("Cookie", teacher).send({ attendanceVisible: "no" });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("updating and archiving", () => {
   it("students can't edit their own profile (e.g. their monthly target)", async () => {
     const res = await request(app).patch(`/api/students/${id}`).set("Cookie", student).send({ monthlyClassTarget: 1 });

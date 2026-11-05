@@ -108,16 +108,55 @@ describe("POST /api/classes/toggle", () => {
 });
 
 describe("GET /api/classes", () => {
+  const ownProfile = (attendanceVisible?: boolean) => mockQuery({ _id: studentId, id: studentId, attendanceVisible });
+
   it("a student can read their own attendance", async () => {
+    mockedStudent.findOne.mockReturnValue(ownProfile(true));
     mockedSession.find.mockReturnValue(mockQuery([{ date: pastDate, status: "completed" }]));
     const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", student);
     expect(res.status).toBe(200);
-    expect(mockedStudent.findOne).toHaveBeenCalledWith({ _id: studentId, user: "student-user-1" });
+    expect(mockedStudent.findOne).toHaveBeenCalledWith({ user: "student-user-1" });
+    expect(mockedSession.find).toHaveBeenCalledWith({ student: studentId });
   });
 
-  it("404s reading someone else's attendance", async () => {
-    mockedStudent.findOne.mockResolvedValue(null as any);
+  it("students created before the visibility setting existed still see attendance", async () => {
+    mockedStudent.findOne.mockReturnValue(ownProfile(undefined));
+    mockedSession.find.mockReturnValue(mockQuery([]));
+    const res = await request(app).get("/api/classes").set("Cookie", student);
+    expect(res.status).toBe(200);
+  });
+
+  it("403s when the teacher has hidden attendance from the student", async () => {
+    mockedStudent.findOne.mockReturnValue(ownProfile(false));
     const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", student);
+    expect(res.status).toBe(403);
+    expect(mockedSession.find).not.toHaveBeenCalled();
+  });
+
+  it("hiding also covers a request without ?student", async () => {
+    mockedStudent.findOne.mockReturnValue(ownProfile(false));
+    const res = await request(app).get("/api/classes").query({ month: 9, year: 2026 }).set("Cookie", student);
+    expect(res.status).toBe(403);
+    expect(mockedSession.find).not.toHaveBeenCalled();
+  });
+
+  it("404s a student asking for someone else's attendance", async () => {
+    mockedStudent.findOne.mockReturnValue(ownProfile(true));
+    const res = await request(app).get("/api/classes").query({ student: "507f1f77bcf86cd7994390aa" }).set("Cookie", student);
+    expect(res.status).toBe(404);
+    expect(mockedSession.find).not.toHaveBeenCalled();
+  });
+
+  it("a teacher still sees a student's attendance when it's hidden from the student", async () => {
+    mockedStudent.findOne.mockResolvedValue({ _id: studentId, attendanceVisible: false } as any);
+    mockedSession.find.mockReturnValue(mockQuery([]));
+    const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", teacher);
+    expect(res.status).toBe(200);
+  });
+
+  it("404s a teacher reading another teacher's student", async () => {
+    mockedStudent.findOne.mockResolvedValue(null as any);
+    const res = await request(app).get("/api/classes").query({ student: studentId }).set("Cookie", teacher);
     expect(res.status).toBe(404);
     expect(mockedSession.find).not.toHaveBeenCalled();
   });
