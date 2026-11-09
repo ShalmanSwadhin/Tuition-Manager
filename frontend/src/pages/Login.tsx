@@ -1,6 +1,9 @@
-import { useState, FormEvent } from "react";
+import { useEffect, useRef, useState, FormEvent } from "react";
 import { useNavigate, Navigate, Link } from "react-router-dom";
+import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import { isBackendUnavailable } from "../api/client";
+import { useServerWaking } from "../api/useServerWaking";
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
@@ -17,9 +20,33 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
   );
 }
 
+export const STARTING_UP_MESSAGE = "Starting up the server, this can take up to a minute…";
+export const STILL_STARTING_MESSAGE = "The server is taking longer than usual to start. Please try again in a moment.";
+
+// Cancels an in-flight request (and its cold-start waiting) when the page
+// unmounts, and lets a handler ignore a second submit while one is running.
+export function useSubmission() {
+  const inFlight = useRef(false);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => () => controller.current?.abort(), []);
+  return {
+    begin(): AbortSignal | null {
+      if (inFlight.current) return null;
+      inFlight.current = true;
+      controller.current = new AbortController();
+      return controller.current.signal;
+    },
+    end() {
+      inFlight.current = false;
+    },
+  };
+}
+
 export default function Login() {
   const { user, loading, login } = useAuth();
   const navigate = useNavigate();
+  const waking = useServerWaking();
+  const submission = useSubmission();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,15 +56,21 @@ export default function Login() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const signal = submission.begin();
+    if (!signal) return; // already signing in
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, signal);
       navigate("/");
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Login failed. If the app was idle, wait a few seconds and try again.");
+      if (axios.isCancel(err)) return;
+      setError(
+        isBackendUnavailable(err) ? STILL_STARTING_MESSAGE : err?.response?.data?.error || "Login failed. Please try again."
+      );
     } finally {
-      setSubmitting(false);
+      submission.end();
+      if (!signal.aborted) setSubmitting(false);
     }
   }
 
@@ -60,6 +93,11 @@ export default function Login() {
           />
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {submitting && waking && (
+          <p className="text-sm text-slate-500" role="status">
+            {STARTING_UP_MESSAGE}
+          </p>
+        )}
         <button type="submit" disabled={submitting} className="btn-primary w-full py-3">
           {submitting ? "Signing in…" : "Sign in"}
         </button>

@@ -1,8 +1,11 @@
 import { useState, FormEvent } from "react";
 import { useNavigate, Navigate, Link } from "react-router-dom";
 import { GraduationCap, BookOpenCheck } from "lucide-react";
+import axios from "axios";
 import { useAuth } from "../context/AuthContext";
-import { AuthShell } from "./Login";
+import { classifyFailure } from "../api/client";
+import { useServerWaking } from "../api/useServerWaking";
+import { AuthShell, useSubmission, STARTING_UP_MESSAGE, STILL_STARTING_MESSAGE } from "./Login";
 
 type SignupRole = "teacher" | "student";
 
@@ -17,27 +20,44 @@ export default function Signup() {
   const [classGrade, setClassGrade] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const waking = useServerWaking();
+  const submission = useSubmission();
 
   if (!loading && user) return <Navigate to="/" replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!role) return;
+    const signal = submission.begin();
+    if (!signal) return; // already submitting
     setError(null);
     setSubmitting(true);
     try {
       if (role === "teacher") {
-        await register({ role, name, email, password });
+        await register({ role, name, email, password }, signal);
       } else {
-        await register({ role, name, email, password, teacherKey: teacherKey.trim(), classGrade });
+        await register({ role, name, email, password, teacherKey: teacherKey.trim(), classGrade }, signal);
       }
       navigate("/");
     } catch (err: any) {
-      const data = err?.response?.data;
-      const fieldError = data?.details?.fieldErrors && Object.values(data.details.fieldErrors).flat()[0];
-      setError((fieldError as string) || data?.error || "Sign up failed. Please try again.");
+      if (axios.isCancel(err)) return;
+      const failure = classifyFailure(err);
+      if (failure === "ambiguous") {
+        // The request may have reached the server before the connection
+        // dropped, so it wasn't resent automatically.
+        setError(
+          "We couldn't confirm your sign-up because the connection dropped. Try signing in first; if that doesn't work, sign up again."
+        );
+      } else if (failure === "unreached") {
+        setError(STILL_STARTING_MESSAGE);
+      } else {
+        const data = err?.response?.data;
+        const fieldError = data?.details?.fieldErrors && Object.values(data.details.fieldErrors).flat()[0];
+        setError((fieldError as string) || data?.error || "Sign up failed. Please try again.");
+      }
     } finally {
-      setSubmitting(false);
+      submission.end();
+      if (!signal.aborted) setSubmitting(false);
     }
   }
 
@@ -110,6 +130,11 @@ export default function Signup() {
           )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
+          {submitting && waking && (
+            <p className="text-sm text-slate-500" role="status">
+              {STARTING_UP_MESSAGE}
+            </p>
+          )}
           <button type="submit" disabled={submitting} className="btn-primary w-full py-3">
             {submitting ? "Creating account…" : `Sign up as ${role === "teacher" ? "Teacher" : "Student"}`}
           </button>
