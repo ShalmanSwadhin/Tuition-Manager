@@ -53,6 +53,39 @@ const api = axios.create({
 
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
+// --- waking the backend -------------------------------------------------------
+//
+// Render only wakes a sleeping free service for requests sent straight to its
+// own address. Requests arriving through Vercel's /api rewrite -- all of the
+// app's traffic -- just get "x-render-routing: no-deploy" and never start it
+// (verified in production). So when Render reports the backend asleep, send
+// one request directly to it. It carries no cookies or data (it's the public
+// health check), and its answer is irrelevant: arriving is what wakes Render.
+// The address comes from vercel.json at build time (see vite.config.ts).
+declare const __API_WAKE_URL__: string | undefined;
+const WAKE_URL = typeof __API_WAKE_URL__ === "string" ? __API_WAKE_URL__ : "";
+const WAKE_EVERY_MS = 20_000; // a wake request is held while Render boots; don't pile them up
+
+// Replaced in tests, which must never contact the real backend.
+export const backendWaker = {
+  lastWakeAt: -Infinity,
+  wake(): void {
+    if (!WAKE_URL) return;
+    fetch(WAKE_URL, { mode: "no-cors", credentials: "omit", cache: "no-store" }).catch(() => {});
+  },
+};
+
+// Render's router answered for a sleeping service (it tags those replies).
+function isRenderAsleep(error: unknown): boolean {
+  return axios.isAxiosError(error) && !!error.response?.headers?.["x-render-routing"];
+}
+
+function wakeIfAsleep(error: unknown) {
+  if (!isRenderAsleep(error) || Date.now() - backendWaker.lastWakeAt < WAKE_EVERY_MS) return;
+  backendWaker.lastWakeAt = Date.now();
+  backendWaker.wake();
+}
+
 export type FailureKind = "unreached" | "ambiguous";
 
 // Our API always answers errors as JSON { error: "..." }; that is a real
@@ -129,8 +162,9 @@ function startRecovery(): Recovery {
         try {
           await api.get("/health", { skipRecovery: true, signal: controller.signal });
           return true;
-        } catch {
+        } catch (err) {
           if (controller.signal.aborted) return false;
+          wakeIfAsleep(err); // still asleep: nudge it again (at most every 20 s)
         }
       }
       return false;
@@ -198,6 +232,7 @@ api.interceptors.response.use(undefined, async (error: unknown) => {
   const config = error.config;
   const kind = classifyFailure(error);
   if (!kind) throw error;
+  wakeIfAsleep(error);
 
   const state = config._recovery ?? { deadline: Date.now() + recoveryTiming.windowMs, ambiguousUsed: 0 };
   if (kind === "ambiguous") {
