@@ -27,6 +27,18 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// Only a real user record from our API counts as a session -- never, say, an
+// HTML page some proxy returned with a 200.
+function asSessionUser(data: unknown): AuthUser | null {
+  const u = data as Partial<AuthUser> | null;
+  const valid = !!u && typeof u === "object" && typeof u.id === "string" && ["admin", "teacher", "student"].includes(String(u.role));
+  return valid ? (u as AuthUser) : null;
+}
+
+// Requests whose 401 means something else ("wrong password", "not signed in
+// yet") and are handled where they're made.
+const AUTH_ENDPOINTS = new Set(["/auth/login", "/auth/register", "/auth/me", "/auth/logout"]);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [status, setStatus] = useState<SessionStatus>("checking");
@@ -36,7 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .get<AuthUser>("/auth/me", { signal })
       .then((res) => {
-        setUser(res.data);
+        const sessionUser = asSessionUser(res.data);
+        if (!sessionUser) return setStatus("error");
+        setUser(sessionUser);
         setStatus("ready");
       })
       .catch((err) => {
@@ -58,22 +72,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [checkSession]);
 
+  // A session can end while the app is open (it reached its 90 days, or the
+  // server's JWT_SECRET was changed). The API then answers 401 to everything:
+  // treat that as signed out, so ProtectedRoute sends the user to the login
+  // page instead of leaving them on screens that can't load.
+  useEffect(() => {
+    const id = api.interceptors.response.use(undefined, (error) => {
+      if (
+        axios.isAxiosError(error) &&
+        error.response?.status === 401 &&
+        !AUTH_ENDPOINTS.has(error.config?.url ?? "")
+      ) {
+        setUser(null);
+        setStatus("ready");
+      }
+      return Promise.reject(error);
+    });
+    return () => api.interceptors.response.eject(id);
+  }, []);
+
+  function startSession(data: unknown) {
+    const sessionUser = asSessionUser(data);
+    if (!sessionUser) throw new Error("Unexpected response from the server");
+    setUser(sessionUser);
+    setStatus("ready");
+  }
+
   async function login(email: string, password: string, signal?: AbortSignal) {
     // Logging in again has no lasting side effect (it just issues a new
     // session cookie), so a couple of resends after a lost reply are fine.
     // Kept small because every attempt that does reach the server counts
     // toward its 10-attempts-per-15-minutes login limit.
     const res = await api.post<AuthUser>("/auth/login", { email, password }, { signal, ambiguousRetries: 2 });
-    setUser(res.data);
-    setStatus("ready");
+    startSession(res.data);
   }
 
   async function register(payload: RegisterPayload, signal?: AbortSignal) {
     // No `ambiguousRetries`: a sign-up is only resent when the request
     // provably never reached the server, so it can't create an account twice.
     const res = await api.post<AuthUser>("/auth/register", payload, { signal });
-    setUser(res.data);
-    setStatus("ready");
+    startSession(res.data);
   }
 
   async function logout() {
