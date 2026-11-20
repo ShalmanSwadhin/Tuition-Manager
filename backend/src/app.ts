@@ -66,7 +66,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   if (err?.name === "CastError") {
     return res.status(400).json({ error: "Invalid id" });
   }
-  res.status(err?.status || 500).json({ error: err?.message || "Internal server error" });
+  const status = err?.status || 500;
+  // In production, server errors get a generic message: internal details
+  // (database errors, stack-ish text) stay in the logs, not in the browser.
+  const hide = status >= 500 && process.env.NODE_ENV === "production";
+  res.status(status).json({ error: (!hide && err?.message) || "Internal server error" });
 });
 
 export default app;
