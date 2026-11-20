@@ -9,6 +9,7 @@ import {
   UNKNOWN_GATEWAY_ERROR,
   ok,
   appError,
+  wakeCalls,
   type Reply,
 } from "../test/fakeBackend";
 
@@ -231,5 +232,52 @@ describe("one recovery for everyone, and cleanup", () => {
     expect(results.value?.[0].status).toBe("rejected");
     expect(results.value?.[1].status).toBe("fulfilled");
     expect(urls(calls, "/students")).toBe(1);
+  });
+});
+
+describe("waking the sleeping backend", () => {
+  // Production finding: Render never wakes for requests that come through
+  // Vercel's proxy, only for requests sent straight to it.
+  it("sends a direct wake-up request as soon as Render reports the backend asleep", async () => {
+    const calls = backendWakingAt(25_000);
+    const pending = run(api.get("/auth/me"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wakeCalls).toHaveLength(1);
+    const { value } = await pending;
+    expect(value?.status).toBe(200);
+    expect(urls(calls, "/auth/me")).toBe(2);
+  });
+
+  it("while it stays asleep, nudges again at most every 20 s (no flood)", async () => {
+    installFakeBackend(() => RENDER_ASLEEP);
+    await run(api.get("/auth/me"), 95_000);
+    // first at t=0, then roughly every 20 s during the 90 s window
+    expect(wakeCalls.length).toBeGreaterThanOrEqual(4);
+    expect(wakeCalls.length).toBeLessThanOrEqual(5);
+    for (let i = 1; i < wakeCalls.length; i++) expect(wakeCalls[i] - wakeCalls[i - 1]).toBeGreaterThanOrEqual(20_000);
+  });
+
+  it("several requests failing at once trigger one wake-up, not one each", async () => {
+    backendWakingAt(10_000);
+    await run(Promise.all([api.get("/auth/me"), api.get("/students"), api.get("/notices")]));
+    expect(wakeCalls).toHaveLength(1);
+  });
+
+  it.each([
+    ["a dropped connection", "network-error" as Reply],
+    ["a non-Render gateway error", UNKNOWN_GATEWAY_ERROR],
+    ["a 401", appError(401, "Not authenticated")],
+    ["a 500", appError(500, "Internal server error")],
+  ])("does not send one for %s", async (_label, reply) => {
+    let first = true;
+    installFakeBackend(() => (first ? ((first = false), reply) : ok()));
+    await run(api.get("/students"));
+    expect(wakeCalls).toHaveLength(0);
+  });
+
+  it("the healthy path never sends one", async () => {
+    installFakeBackend(() => ok());
+    await run(api.get("/auth/me"));
+    expect(wakeCalls).toHaveLength(0);
   });
 });

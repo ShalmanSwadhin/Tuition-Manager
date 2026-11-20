@@ -1,7 +1,7 @@
 // A stand-in for the network in tests: replaces the axios adapter of the
 // app's API client, so no test ever depends on Render (or any server) being up.
 import { AxiosError, AxiosHeaders, CanceledError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
-import api from "../api/client";
+import api, { backendWaker } from "../api/client";
 
 export type Reply = { status: number; data?: unknown; headers?: Record<string, string> } | "network-error";
 
@@ -29,6 +29,10 @@ export interface Call {
 }
 
 const originalAdapter = api.defaults.adapter;
+const originalWake = backendWaker.wake;
+
+// Direct wake-up requests the app sent to "Render" (never real network traffic).
+export const wakeCalls: number[] = [];
 
 export function installFakeBackend(handler: (config: InternalAxiosRequestConfig) => Reply): Call[] {
   const calls: Call[] = [];
@@ -60,11 +64,15 @@ export function installFakeBackend(handler: (config: InternalAxiosRequestConfig)
     );
   };
   api.defaults.adapter = adapter;
+  backendWaker.wake = () => void wakeCalls.push(Date.now());
+  backendWaker.lastWakeAt = -Infinity;
+  wakeCalls.length = 0;
   return calls;
 }
 
 export function restoreBackend() {
   api.defaults.adapter = originalAdapter;
+  backendWaker.wake = originalWake;
 }
 
 export const ok = (data: unknown = { ok: true }): Reply => ({ status: 200, data });
