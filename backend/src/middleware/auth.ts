@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import type { Role } from "../models/User";
+import { JWT_ALGORITHM, SESSION_COOKIE } from "../config/auth";
 
 export interface AuthUser {
   id: string;
@@ -14,12 +15,16 @@ export interface AuthedRequest extends Request {
 const ROLES: Role[] = ["admin", "teacher", "student"];
 
 export function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
-  const token = req.cookies?.token;
+  const token = req.cookies?.[SESSION_COOKIE];
   if (!token) {
     return res.status(401).json({ error: "Not authenticated" });
   }
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET as string) as { sub: string; role?: Role };
+    // Only accept the algorithm we sign with (expiry is checked here too).
+    const payload = jwt.verify(token, process.env.JWT_SECRET as string, { algorithms: [JWT_ALGORITHM] }) as {
+      sub: string;
+      role?: Role;
+    };
     // Tokens issued before roles existed carry no role -- make them log in again.
     if (!payload.role || !ROLES.includes(payload.role)) {
       return res.status(401).json({ error: "Invalid or expired session" });

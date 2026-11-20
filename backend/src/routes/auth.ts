@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
@@ -9,6 +9,13 @@ import { validateBody } from "../middleware/validate";
 import { requireAuth, requireRole, AuthedRequest } from "../middleware/auth";
 import { generateUniqueTeacherKey } from "../utils/teacherKey";
 import { todayDhakaStr } from "../utils/dateUtils";
+import {
+  JWT_ALGORITHM,
+  SESSION_COOKIE,
+  sessionSeconds,
+  sessionCookieOptions,
+  clearSessionCookieOptions,
+} from "../config/auth";
 
 const router = Router();
 
@@ -55,22 +62,18 @@ const registerSchema = z.discriminatedUnion("role", [
 
 const STUDENT_COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
 
-// How long a login lasts. The token and the cookie carrying it share this,
+// The token and the cookie carrying it share one lifetime (config/auth.ts),
 // so neither can run out before the other.
-const SESSION_DAYS = Number(process.env.SESSION_DAYS) || 90;
-
 function signToken(userId: string, role: Role): string {
   return jwt.sign({ sub: userId, role }, process.env.JWT_SECRET as string, {
-    expiresIn: `${SESSION_DAYS}d`,
+    algorithm: JWT_ALGORITHM,
+    expiresIn: sessionSeconds(),
   });
 }
 
-const cookieOpts = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: (process.env.NODE_ENV === "production" ? "none" : "lax") as "none" | "lax",
-  maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
-};
+function setSessionCookie(res: Response, user: IUser) {
+  res.cookie(SESSION_COOKIE, signToken(user.id, user.role), sessionCookieOptions());
+}
 
 // What the frontend gets to know about the signed-in user.
 async function sessionInfo(user: IUser) {
@@ -131,7 +134,7 @@ router.post("/register", registerLimiter, validateBody(registerSchema), async (r
     }
   }
 
-  res.cookie("token", signToken(user.id, user.role), cookieOpts);
+  setSessionCookie(res, user);
   res.status(201).json(await sessionInfo(user));
 });
 
@@ -143,12 +146,12 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res) 
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: "Invalid email or password" });
 
-  res.cookie("token", signToken(user.id, user.role), cookieOpts);
+  setSessionCookie(res, user);
   res.json(await sessionInfo(user));
 });
 
 router.post("/logout", (_req, res) => {
-  res.clearCookie("token", { ...cookieOpts, maxAge: undefined });
+  res.clearCookie(SESSION_COOKIE, clearSessionCookieOptions());
   res.json({ ok: true });
 });
 
