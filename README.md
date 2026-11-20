@@ -189,6 +189,22 @@ MONGODB_URI="<atlas uri>" ADMIN_EMAIL="you@example.com" ADMIN_PASSWORD="<strong 
 
 Real environment variables take precedence over `backend/.env`.
 
+**Forgot a password?** There's no email-based reset, so recover any
+account (admin, teacher or student) the same way, from your own machine:
+
+```powershell
+# PowerShell
+$env:MONGODB_URI="<atlas uri>"; $env:RESET_EMAIL="you@example.com"; $env:RESET_PASSWORD="<new password>"; npm run reset-password
+```
+
+```bash
+# bash
+MONGODB_URI="<atlas uri>" RESET_EMAIL="you@example.com" RESET_PASSWORD="<new password>" npm run reset-password
+```
+
+It only changes that account's password (at least 6 characters). Close the
+terminal afterwards so the URI and password don't linger in its history.
+
 ### 3. Frontend — Vercel (Hobby)
 
 1. In `frontend/vercel.json`, replace `YOUR-RENDER-SERVICE.onrender.com`
@@ -203,18 +219,51 @@ Because the browser only ever talks to the Vercel domain, the httpOnly
 login cookie is first-party. Calling `onrender.com` directly from
 `vercel.app` would make it a third-party cookie, which Safari (and any
 browser blocking third-party cookies) silently drops, so logins wouldn't
-stick.
+stick. The cookie is `SameSite=Lax`, so other websites can't make requests
+that carry it (cross-site request forgery); that only works because of this
+same-origin setup, so keep `VITE_API_URL` unset.
 
 ### Free-tier caveats
 
-- Free Render services sleep after ~15 minutes idle; the first request
-  afterwards can take ~30–60s while it wakes. The UI shows "Loading…"
-  meanwhile; reload if a request times out.
+- Free Render services sleep after ~15 minutes idle and take ~25–60 s to
+  wake. **Render only wakes a sleeping service for requests sent straight to
+  its own address** — requests arriving through Vercel's `/api` rewrite get
+  an immediate `502` with `x-render-routing: no-deploy` and never start it
+  (verified in production). So when the app sees that reply it sends one
+  cookie-less request directly to the Render URL (taken from `vercel.json`
+  at build time; see `frontend/vite.config.ts`), shows "Starting up, this
+  can take up to a minute…", and carries on once the backend answers. If
+  you move the backend, update the URL in `vercel.json` and rebuild.
+- Optional: a free uptime monitor (e.g. UptimeRobot) requesting
+  `https://<your-service>.onrender.com/api/health` every 10–14 minutes keeps
+  the backend awake, at the cost of using most of Render's 750 free
+  instance-hours per month.
 - Atlas M0 gives 512 MB. Uploaded files are stored in the database
   (GridFS), so they use this space — roughly a hundred 5 MB slide decks.
   If Atlas loaded its sample data into your cluster, deleting the
   `sample_*` databases frees ~140 MB. Render's own disk is wiped on every
   deploy, which is why files aren't kept there.
+
+## How sign-in works
+
+- Signing in sets one cookie, `token`: a signed JWT (HS256, `JWT_SECRET`) in
+  an `httpOnly`, `Secure`, `SameSite=Lax` cookie. Nothing about the session
+  is kept in `localStorage`, and JavaScript can't read the cookie.
+- A login lasts `SESSION_DAYS` (default 90). The token and the cookie expire
+  together; after that the user signs in again. There are no refresh
+  tokens. All of this is configured in `backend/src/config/auth.ts`.
+- Sessions survive page refreshes, closing the browser and backend restarts
+  (Render sleeping/redeploying), because the server keeps no session state.
+- Logging out deletes the cookie. Because sessions are stateless, a copied
+  token stays valid until it expires; to sign **everyone** out at once
+  (e.g. a lost phone), change `JWT_SECRET` on Render.
+- If a session ends while the app is open, the next request gets a 401 and
+  the app returns to the login page.
+- On startup the server refuses to run without `JWT_SECRET`/`MONGODB_URI`,
+  and logs a warning (never the value) for a short `JWT_SECRET`, an invalid
+  `SESSION_DAYS`, or the obsolete `JWT_EXPIRES_IN`.
+- Login is limited to 10 attempts per email per 15 minutes; wrong email and
+  wrong password get the same message. Passwords are hashed with bcrypt.
 
 ## Notes on business rules implemented
 
